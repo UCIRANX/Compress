@@ -8,12 +8,8 @@ name = "compressor"
 crate-type = ["cdylib"]
 
 [dependencies]
-slint = { version = "=1.8.0", default-features = false, features = ["std", "backend-android-activity-06", "renderer-software", "compat-1-2"] }
 anyhow = "1"
 jni = "0.21"
-
-[build-dependencies]
-slint-build = "=1.8.0"
 
 [profile.release]
 opt-level = "z"
