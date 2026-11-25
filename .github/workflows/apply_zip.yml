@@ -1,0 +1,32 @@
+name: apply-uploaded-zip
+
+on:
+  push:
+    paths: ['uploads/*.zip']
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    # جلوگیری از حلقه: کامیتی که خود این workflow می‌زند دوباره اجرا نمی‌شود
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract zips (overwrite existing files) and remove them
+        run: |
+          shopt -s nullglob
+          for z in uploads/*.zip; do
+            unzip -o "$z" -d .
+            rm -f "$z"
+          done
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "apply uploaded zip [skip ci]"
+          git push
