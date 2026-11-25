@@ -47,7 +47,9 @@ build_abi() {
   echo "== libvpx ($ABI)"
   rm -rf "$B/libvpx" "$B/libvpx-build"
   cp -r "$SRC/libvpx" "$B/libvpx" && mkdir -p "$B/libvpx-build" && cd "$B/libvpx-build"
-  "$B/libvpx/configure" --target="$VPX_TGT" --prefix="$PREFIX" --sdk-path="$NDK" \
+  # libvpx 1.14 گزینهٔ --sdk-path ندارد؛ کامپایلر باید از طریق env داده شود
+  CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP" NM="$NM" \
+    "$B/libvpx/configure" --target="$VPX_TGT" --prefix="$PREFIX" \
     --enable-vp9 --enable-pic --enable-static --disable-shared \
     --disable-examples --disable-tools --disable-docs --disable-unit-tests
   make -j"$JOBS"
