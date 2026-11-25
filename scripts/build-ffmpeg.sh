@@ -57,6 +57,8 @@ build_abi() {
 
   echo "== ffmpeg ($ABI)"
   rm -rf "$B/ffmpeg" && mkdir -p "$B/ffmpeg" && cd "$B/ffmpeg"
+  # ffmpeg کتابخانه‌ها را با pkg-config پیدا می‌کند؛ مسیر .pc ها را می‌دهیم
+  PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
   "$SRC/ffmpeg/configure" \
     --prefix="$PREFIX" --enable-cross-compile --target-os=android \
     --arch="$ARCH" --cpu="$CPU" --sysroot="$TC/sysroot" \
@@ -65,7 +67,6 @@ build_abi() {
     --enable-gpl --enable-static --disable-shared --enable-pic --enable-small \
     --enable-libx264 --enable-libvpx \
     --disable-doc --disable-debug --disable-ffplay --disable-network --disable-avdevice \
-    --disable-pkg-config \
     --extra-cflags="-I$PREFIX/include -fPIC -O3" \
     --extra-ldflags="-L$PREFIX/lib" --extra-libs="-lm"
   make -j"$JOBS" ffmpeg ffprobe
