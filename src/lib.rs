@@ -46,10 +46,13 @@ fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         match job::process(&ffmpeg, &ffprobe, &input, percent, format) {
-            Ok((_, out_fps)) => {
+            Ok((_, in_fps, out_fps)) => {
                 ok += 1;
                 if out_fps > 30.5 {
-                    errs.push(format!("هشدار {name}: فریم‌ریت خروجی {out_fps:.0} است (انتظار ۳۰)"));
+                    let note = if in_fps <= 0.0 { " (فریم‌ریت ورودی خوانده نشد)" } else { "" };
+                    errs.push(format!(
+                        "هشدار {name}: فریم‌ریت ورودی {in_fps:.0}، خروجی {out_fps:.0} (انتظار ۳۰){note}"
+                    ));
                 }
             }
             Err(e) => errs.push(format!("{name}: {e:#}")),

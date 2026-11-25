@@ -56,7 +56,8 @@ pub fn encode_video(
         .arg(input)
         .args(["-c:v", vcodec, "-b:v", kb.as_str(), "-maxrate", kb.as_str(), "-bufsize", buf.as_str()]);
     if fps > MAX_FPS {
-        cmd.args(["-r", "30"]);
+        // ورودی بیشتر از ۳۰ است، پس فیلتر fps فقط فریم اضافه را حذف می‌کند و هیچ فریمی تکرار نمی‌کند
+        cmd.args(["-vf", "fps=30"]);
     }
     cmd.args(extra)
         .args(["-c:a", acodec, "-b:a", "96k"])

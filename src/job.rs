@@ -7,7 +7,7 @@ use std::process::Command;
 const VIDEO_IN: &[&str] = &["mp4", "mov", "mkv", "webm", "m4v", "3gp", "avi"];
 const IMAGE_IN: &[&str] = &["jpg", "jpeg", "png", "webp"];
 
-pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice: &str) -> Result<(PathBuf, f64)> {
+pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice: &str) -> Result<(PathBuf, f64, f64)> {
     let name = input
         .file_name()
         .and_then(|n| n.to_str())
@@ -25,10 +25,10 @@ pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice
     let out_ext = pick_ext(is_video, &in_ext, choice);
     let out = storage::unique_path(&format!("{stem}.{out_ext}"))?;
 
+    let in_fps = if is_video { probe_fps(ffprobe, input) } else { 0.0 };
     let result = if is_video {
         let dur = probe_duration(ffprobe, input)?;
-        let fps = probe_fps(ffprobe, input);
-        compress::compress_video(ffmpeg, input, &out, dur, fps, percent)
+        compress::compress_video(ffmpeg, input, &out, dur, in_fps, percent)
     } else {
         compress::compress_image(ffmpeg, input, &out, percent)
     };
@@ -37,7 +37,7 @@ pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice
     }
     result?;
     let out_fps = if is_video { probe_fps(ffprobe, &out) } else { 0.0 };
-    Ok((out, out_fps))
+    Ok((out, in_fps, out_fps))
 }
 
 /// فرمت خروجی: اگر انتخاب کاربر برای این نوع فایل معتبر باشد همان، وگرنه فرمت اصلی.
@@ -69,10 +69,21 @@ pub fn probe_duration(ffprobe: &Path, input: &Path) -> Result<f64> {
         .map_err(|_| anyhow!("مدت ویدیو خوانده نشد"))
 }
 
-/// فریم‌ریت ویدیو را می‌خواند؛ اگر خوانده نشود ۰ برمی‌گرداند (یعنی تغییری داده نمی‌شود).
+/// فریم‌ریت ویدیو را می‌خواند؛ اول r_frame_rate و اگر نشد avg_frame_rate. اگر هیچ‌کدام نشد ۰ برمی‌گرداند.
 pub fn probe_fps(ffprobe: &Path, input: &Path) -> f64 {
+    for entry in ["r_frame_rate", "avg_frame_rate"] {
+        let v = probe_stream_rate(ffprobe, input, entry);
+        if v > 0.0 {
+            return v;
+        }
+    }
+    0.0
+}
+
+fn probe_stream_rate(ffprobe: &Path, input: &Path, entry: &str) -> f64 {
+    let show = format!("stream={entry}");
     let out = match Command::new(ffprobe)
-        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0"])
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", show.as_str(), "-of", "csv=p=0"])
         .arg(input)
         .output()
     {
@@ -80,7 +91,7 @@ pub fn probe_fps(ffprobe: &Path, input: &Path) -> f64 {
         Err(_) => return 0.0,
     };
     let text = String::from_utf8_lossy(&out.stdout);
-    let s = text.trim();
+    let s = text.lines().next().unwrap_or("").trim();
     match s.split_once('/') {
         Some((n, d)) => match (n.trim().parse::<f64>(), d.trim().parse::<f64>()) {
             (Ok(n), Ok(d)) if d > 0.0 => n / d,
