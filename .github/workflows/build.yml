@@ -22,12 +22,15 @@ jobs:
           java-version: '17'
 
       # ایمیج ubuntu-latest از قبل Android SDK دارد؛ نیازی به android-actions/setup-android نیست
-      - name: Install NDK
+      - name: Install NDK and Android platform
         run: |
           SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" --install "ndk;26.1.10909125"
+          "$SDKM" --install "ndk;26.1.10909125" "platforms;android-34"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          # build.rs اسلینت ANDROID_HOME و پوشهٔ platforms را می‌خواند
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_PLATFORM=34" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
