@@ -268,6 +268,8 @@ public class MainActivity extends Activity {
                 bar.setProgress(1000);
                 barText.setText("100%");
                 statusText.setText(msg);
+                selected.clear();
+                selectedText.setText("هنوز فایلی انتخاب نشده");
                 pickBtn.setAlpha(1f);
                 updateStartState();
             });

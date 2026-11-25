@@ -46,7 +46,12 @@ fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         match job::process(&ffmpeg, &ffprobe, &input, percent, format) {
-            Ok(_) => ok += 1,
+            Ok((_, out_fps)) => {
+                ok += 1;
+                if out_fps > 30.5 {
+                    errs.push(format!("هشدار {name}: فریم‌ریت خروجی {out_fps:.0} است (انتظار ۳۰)"));
+                }
+            }
             Err(e) => errs.push(format!("{name}: {e:#}")),
         }
         let _ = std::fs::remove_file(&input);

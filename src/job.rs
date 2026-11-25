@@ -7,7 +7,7 @@ use std::process::Command;
 const VIDEO_IN: &[&str] = &["mp4", "mov", "mkv", "webm", "m4v", "3gp", "avi"];
 const IMAGE_IN: &[&str] = &["jpg", "jpeg", "png", "webp"];
 
-pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice: &str) -> Result<PathBuf> {
+pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice: &str) -> Result<(PathBuf, f64)> {
     let name = input
         .file_name()
         .and_then(|n| n.to_str())
@@ -36,7 +36,8 @@ pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice
         let _ = std::fs::remove_file(&out);
     }
     result?;
-    Ok(out)
+    let out_fps = if is_video { probe_fps(ffprobe, &out) } else { 0.0 };
+    Ok((out, out_fps))
 }
 
 /// فرمت خروجی: اگر انتخاب کاربر برای این نوع فایل معتبر باشد همان، وگرنه فرمت اصلی.
