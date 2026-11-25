@@ -26,7 +26,7 @@ fetch https://github.com/webmproject/libvpx.git "$SRC/libvpx" v1.14.1
 fetch https://github.com/FFmpeg/FFmpeg.git "$SRC/ffmpeg" n7.1
 
 build_abi() {
-  local ABI=$1 TRIPLE=$2 ARCH=$3 CPU=$4 VPX_TGT=$5 X264_HOST=$6 X264_EXTRA=$7
+  local ABI=$1 TRIPLE=$2 ARCH=$3 CPU=$4 VPX_TGT=$5 X264_HOST=$6 X264_EXTRA=$7 VPX_EXTRA=${8:-}
   local CC="$TC/bin/${TRIPLE}${API}-clang"
   local CXX="$TC/bin/${TRIPLE}${API}-clang++"
   local AR="$TC/bin/llvm-ar" RANLIB="$TC/bin/llvm-ranlib"
@@ -48,10 +48,8 @@ build_abi() {
   rm -rf "$B/libvpx" "$B/libvpx-build"
   cp -r "$SRC/libvpx" "$B/libvpx" && mkdir -p "$B/libvpx-build" && cd "$B/libvpx-build"
   # libvpx 1.14 گزینهٔ --sdk-path ندارد؛ کامپایلر باید از طریق env داده شود
-  # فایل‌های assembly (.S) باید با clang سیستم‌عامل NDK کامپایل شوند؛ اگر AS نباشد،
-  # binutils میزبان x86 استفاده می‌شود و خطای -march=armv7-a می‌دهد
-  CC="$CC" CXX="$CXX" AS="$CC" AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP" NM="$NM" \
-    "$B/libvpx/configure" --target="$VPX_TGT" --prefix="$PREFIX" \
+    CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP" NM="$NM" \
+    "$B/libvpx/configure" --target="$VPX_TGT" --prefix="$PREFIX" $VPX_EXTRA \
     --enable-vp9 --enable-pic --enable-static --disable-shared \
     --disable-examples --disable-tools --disable-docs --disable-unit-tests
   make -j"$JOBS"
@@ -80,6 +78,6 @@ build_abi() {
 }
 
 build_abi arm64-v8a aarch64-linux-android aarch64 armv8-a arm64-android-gcc aarch64-linux-android ""
-build_abi armeabi-v7a armv7a-linux-androideabi arm armv7-a armv7-android-gcc arm-linux-androideabi "--disable-asm"
+build_abi armeabi-v7a armv7a-linux-androideabi arm armv7-a armv7-android-gcc arm-linux-androideabi "--disable-asm" "--disable-neon-asm"
 
 echo "ffmpeg و ffprobe در third_party/out ساخته شدند"
