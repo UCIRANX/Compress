@@ -39,6 +39,7 @@ fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_
 
     let mut ok = 0usize;
     let mut errs: Vec<String> = Vec::new();
+    let mut reports: Vec<String> = Vec::new();
     for p in paths {
         let input = PathBuf::from(&p);
         let name = input
@@ -48,11 +49,11 @@ fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_
         match job::process(&ffmpeg, &ffprobe, &input, percent, format) {
             Ok((_, in_fps, out_fps)) => {
                 ok += 1;
-                if out_fps > 30.5 {
-                    let note = if in_fps <= 0.0 { " (فریم‌ریت ورودی خوانده نشد)" } else { "" };
-                    errs.push(format!(
-                        "هشدار {name}: فریم‌ریت ورودی {in_fps:.0}، خروجی {out_fps:.0} (انتظار ۳۰){note}"
-                    ));
+                reports.push(format!("{name}: {in_fps:.0} → {out_fps:.0}"));
+                if out_fps <= 0.0 {
+                    errs.push(format!("هشدار {name}: فریم‌ریت خروجی خوانده نشد"));
+                } else if out_fps > 30.5 {
+                    errs.push(format!("هشدار {name}: فریم‌ریت خروجی {out_fps:.0} است (انتظار ۳۰)"));
                 }
             }
             Err(e) => errs.push(format!("{name}: {e:#}")),
@@ -66,6 +67,10 @@ fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_
     if !errs.is_empty() {
         msg.push_str("\nخطاها:\n");
         msg.push_str(&errs.join("\n"));
+    }
+    if !reports.is_empty() {
+        msg.push_str("\nفریم‌ریت (ورودی → خروجی):\n");
+        msg.push_str(&reports.join("\n"));
     }
     Ok(msg)
 }
