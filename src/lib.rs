@@ -47,8 +47,11 @@ fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         match job::process(&ffmpeg, &ffprobe, &input, percent, format) {
-            Ok((_, in_fps, out_fps)) => {
+            Ok((_, in_fps, out_fps, note)) => {
                 ok += 1;
+                if !note.is_empty() {
+                    errs.push(format!("هشدار {name}: {note}"));
+                }
                 reports.push(format!("{name}: {in_fps:.0} → {out_fps:.0}"));
                 if out_fps <= 0.0 {
                     errs.push(format!("هشدار {name}: فریم‌ریت خروجی خوانده نشد"));
