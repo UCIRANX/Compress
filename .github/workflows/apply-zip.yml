@@ -36,6 +36,14 @@ jobs:
               src="$tmp"
             fi
             cp -a "$src"/. .
+            # فایل‌های حذف‌شده: هر خط یک مسیر نسبی است
+            if [ -f "$src/remove.txt" ]; then
+              while IFS= read -r f; do
+                f="${f%$'\r'}"
+                [ -n "$f" ] && rm -rf -- "$f" && echo "removed $f"
+              done < "$src/remove.txt"
+              rm -f -- remove.txt
+            fi
             rm -rf "$tmp"
             rm -f "$z"
             echo "applied $z"
