@@ -22,6 +22,12 @@ android {
         }
     }
 
+    lint {
+        // targetSdk 28 عمداً نگه داشته شده تا نوشتن مستقیم در DCIM کار کند (scoped storage ندارد)
+        // و این فقط برای انتشار در Google Play مشکل است؛ APK مستقیم نصب می‌شود
+        disable.add("ExpiredTargetSdkVersion")
+    }
+
     splits {
         abi {
             isEnable = true
