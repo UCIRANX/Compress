@@ -82,23 +82,58 @@ pub fn probe_duration(ffprobe: &Path, input: &Path) -> Result<f64> {
         .map_err(|_| anyhow!("مدت ویدیو خوانده نشد"))
 }
 
-/// ابعاد (عرض، ارتفاع) را از خط Video در خروجی `ffmpeg -i` می‌خواند.
+/// ابعاد نمایشی (عرض، ارتفاع) را از خروجی `ffmpeg -i` می‌خواند.
+/// اگر ویدیو/عکس چرخش داشته باشد (مثلاً عمودی ضبط‌شده در موبایل)، ابعاد جابه‌جا می‌شوند،
+/// چون ffmpeg موقع پردازش آن را اعمال می‌کند و scale باید با ابعاد چرخیده کار کند.
 pub fn probe_dims_ffmpeg(ffmpeg: &Path, input: &Path) -> Option<(u32, u32)> {
     let out = Command::new(ffmpeg).args(["-hide_banner", "-i"]).arg(input).output().ok()?;
     let text = String::from_utf8_lossy(&out.stderr);
+    let mut raw: Option<(u32, u32)> = None;
     for line in text.lines().filter(|l| l.contains("Video:")) {
         for part in line.split(',') {
             let word = part.trim().split_whitespace().next().unwrap_or("");
             if let Some((a, b)) = word.split_once('x') {
                 if let (Ok(w), Ok(h)) = (a.parse::<u32>(), b.parse::<u32>()) {
                     if w > 0 && h > 0 {
-                        return Some((w, h));
+                        raw = Some((w, h));
+                        break;
                     }
                 }
             }
         }
+        if raw.is_some() {
+            break;
+        }
     }
-    None
+    let (w, h) = raw?;
+    let rot = parse_rotation(&text);
+    if rot.rem_euclid(180) == 90 {
+        Some((h, w))
+    } else {
+        Some((w, h))
+    }
+}
+
+/// زاویهٔ چرخش را از «displaymatrix: rotation of -90.00 degrees» یا «rotate : -90» می‌خواند.
+fn parse_rotation(text: &str) -> i32 {
+    for line in text.lines() {
+        let t = line.trim();
+        if let Some(pos) = t.find("rotation of ") {
+            let rest = &t[pos + "rotation of ".len()..];
+            let num = rest.split_whitespace().next().unwrap_or("");
+            if let Ok(v) = num.parse::<f64>() {
+                return v.round() as i32;
+            }
+        }
+        if t.starts_with("rotate") {
+            if let Some((_, v)) = t.split_once(':') {
+                if let Ok(v) = v.trim().parse::<i32>() {
+                    return v;
+                }
+            }
+        }
+    }
+    0
 }
 
 /// اول از خود ffmpeg (خط Video) فریم‌ریت را می‌خواند، و اگر نشد از ffprobe.
