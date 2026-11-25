@@ -12,9 +12,13 @@ BUILD_ROOT="$ROOT/third_party/build"
 JOBS="$(nproc)"
 mkdir -p "$SRC" "$OUT" "$BUILD_ROOT"
 
-fetch() { # url dir [branch]
+fetch() { # url dir [ref]
   [ -d "$2" ] && return 0
-  if [ -n "${3:-}" ]; then git clone --depth 1 --branch "$3" "$1" "$2"; else git clone --depth 1 "$1" "$2"; fi
+  if [ -n "${3:-}" ]; then
+    git clone --depth 1 --branch "$3" "$1" "$2" 2>/dev/null || { git clone "$1" "$2" && git -C "$2" checkout "$3"; }
+  else
+    git clone --depth 1 "$1" "$2"
+  fi
 }
 
 fetch https://code.videolan.org/videolan/x264.git "$SRC/x264"
@@ -33,17 +37,21 @@ build_abi() {
 
   echo "== x264 ($ABI)"
   rm -rf "$B/x264" && cp -r "$SRC/x264" "$B/x264" && cd "$B/x264"
-  ./configure --host="$X264_HOST" --enable-static --enable-pic --disable-cli \
-    --prefix="$PREFIX" --cross-prefix= $X264_EXTRA \
-    CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP"
-  make -j"$JOBS" && make install
+  # متغیرهای کامپایلر باید env باشند، نه آرگومان configure
+  CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP" \
+    ./configure --host="$X264_HOST" --enable-static --enable-pic --disable-cli \
+    --prefix="$PREFIX" $X264_EXTRA
+  make -j"$JOBS"
+  make install
 
   echo "== libvpx ($ABI)"
-  rm -rf "$B/libvpx" && cp -r "$SRC/libvpx" "$B/libvpx" && mkdir -p "$B/libvpx-build" && cd "$B/libvpx-build"
+  rm -rf "$B/libvpx" "$B/libvpx-build"
+  cp -r "$SRC/libvpx" "$B/libvpx" && mkdir -p "$B/libvpx-build" && cd "$B/libvpx-build"
   "$B/libvpx/configure" --target="$VPX_TGT" --prefix="$PREFIX" --sdk-path="$NDK" \
     --enable-vp9 --enable-pic --enable-static --disable-shared \
     --disable-examples --disable-tools --disable-docs --disable-unit-tests
-  make -j"$JOBS" && make install
+  make -j"$JOBS"
+  make install
 
   echo "== ffmpeg ($ABI)"
   rm -rf "$B/ffmpeg" && mkdir -p "$B/ffmpeg" && cd "$B/ffmpeg"
