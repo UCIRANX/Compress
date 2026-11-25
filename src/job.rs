@@ -25,7 +25,7 @@ pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice
     let out_ext = pick_ext(is_video, &in_ext, choice);
     let out = storage::unique_path(&format!("{stem}.{out_ext}"))?;
 
-    let in_fps = if is_video { probe_fps(ffprobe, input) } else { 0.0 };
+    let in_fps = if is_video { detect_fps(ffmpeg, ffprobe, input) } else { 0.0 };
     let result = if is_video {
         let dur = probe_duration(ffprobe, input)?;
         compress::compress_video(ffmpeg, input, &out, dur, in_fps, percent)
@@ -36,7 +36,7 @@ pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice
         let _ = std::fs::remove_file(&out);
     }
     result?;
-    let out_fps = if is_video { probe_fps(ffprobe, &out) } else { 0.0 };
+    let out_fps = if is_video { detect_fps(ffmpeg, ffprobe, &out) } else { 0.0 };
     Ok((out, in_fps, out_fps))
 }
 
@@ -99,4 +99,44 @@ fn probe_stream_rate(ffprobe: &Path, input: &Path, entry: &str) -> f64 {
         },
         None => s.parse::<f64>().unwrap_or(0.0),
     }
+}
+
+/// اول از خود ffmpeg (خط Video در خروجی `ffmpeg -i`) فریم‌ریت را می‌خواند، و اگر نشد از ffprobe.
+pub fn detect_fps(ffmpeg: &Path, ffprobe: &Path, input: &Path) -> f64 {
+    let v = probe_fps_ffmpeg(ffmpeg, input);
+    if v > 0.0 {
+        v
+    } else {
+        probe_fps(ffprobe, input)
+    }
+}
+
+/// `ffmpeg -i file` اطلاعات را در stderr چاپ می‌کند؛ از خط Video عدد قبل از «fps» یا «tbr» را می‌خوانیم.
+pub fn probe_fps_ffmpeg(ffmpeg: &Path, input: &Path) -> f64 {
+    let out = match Command::new(ffmpeg).args(["-hide_banner", "-i"]).arg(input).output() {
+        Ok(o) => o,
+        Err(_) => return 0.0,
+    };
+    let text = String::from_utf8_lossy(&out.stderr);
+    for line in text.lines() {
+        if !line.contains("Video:") {
+            continue;
+        }
+        for key in [" fps", " tbr"] {
+            if let Some(pos) = line.find(key) {
+                let before = &line[..pos];
+                let tok = before
+                    .rsplit(|c: char| c == ',' || c == ' ')
+                    .find(|t| !t.is_empty());
+                if let Some(tok) = tok {
+                    if let Ok(v) = tok.parse::<f64>() {
+                        if v > 0.0 {
+                            return v;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    0.0
 }
