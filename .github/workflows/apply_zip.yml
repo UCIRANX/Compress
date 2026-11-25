@@ -3,30 +3,52 @@ name: apply-uploaded-zip
 on:
   push:
     paths: ['uploads/*.zip']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    # جلوگیری از حلقه: کامیتی که خود این workflow می‌زند دوباره اجرا نمی‌شود
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
+      # ADMIN_PAT لازم است چون GITHUB_TOKEN اجازهٔ تغییر .github/workflows را ندارد
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ADMIN_PAT }}
 
-      - name: Extract zips (overwrite existing files) and remove them
+      - name: Extract every zip in uploads/ over the repo
         run: |
           shopt -s nullglob
-          for z in uploads/*.zip; do
-            unzip -o "$z" -d .
+          zips=(uploads/*.zip)
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "no zip in uploads/"
+            exit 0
+          fi
+          for z in "${zips[@]}"; do
+            tmp=$(mktemp -d)
+            unzip -q -o "$z" -d "$tmp"
+            entries=("$tmp"/*)
+            # اگر زیپ یک پوشهٔ ریشه داشت (مثل compressor-project/)، محتوای داخلش را استفاده کن
+            if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
+              src="${entries[0]}"
+            else
+              src="$tmp"
+            fi
+            cp -a "$src"/. .
+            rm -rf "$tmp"
             rm -f "$z"
+            echo "applied $z"
           done
 
-      - name: Commit and push
+      - name: Commit and push if changed
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "apply-zip-bot"
+          git config user.email "apply-zip-bot@users.noreply.github.com"
           git add -A
-          git diff --cached --quiet || git commit -m "apply uploaded zip [skip ci]"
+          if git diff --cached --quiet; then
+            echo "nothing changed"
+            exit 0
+          fi
+          git commit -m "apply uploaded zip"
           git push
