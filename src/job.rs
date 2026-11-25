@@ -27,7 +27,8 @@ pub fn process(ffmpeg: &Path, ffprobe: &Path, input: &Path, percent: u32, choice
 
     let result = if is_video {
         let dur = probe_duration(ffprobe, input)?;
-        compress::compress_video(ffmpeg, input, &out, dur, percent)
+        let fps = probe_fps(ffprobe, input);
+        compress::compress_video(ffmpeg, input, &out, dur, fps, percent)
     } else {
         compress::compress_image(ffmpeg, input, &out, percent)
     };
@@ -65,4 +66,25 @@ pub fn probe_duration(ffprobe: &Path, input: &Path) -> Result<f64> {
     text.trim()
         .parse::<f64>()
         .map_err(|_| anyhow!("مدت ویدیو خوانده نشد"))
+}
+
+/// فریم‌ریت ویدیو را می‌خواند؛ اگر خوانده نشود ۰ برمی‌گرداند (یعنی تغییری داده نمی‌شود).
+pub fn probe_fps(ffprobe: &Path, input: &Path) -> f64 {
+    let out = match Command::new(ffprobe)
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0"])
+        .arg(input)
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return 0.0,
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let s = text.trim();
+    match s.split_once('/') {
+        Some((n, d)) => match (n.trim().parse::<f64>(), d.trim().parse::<f64>()) {
+            (Ok(n), Ok(d)) if d > 0.0 => n / d,
+            _ => 0.0,
+        },
+        None => s.parse::<f64>().unwrap_or(0.0),
+    }
 }
