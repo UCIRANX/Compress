@@ -1,0 +1,11 @@
+target/
+*.jks
+*.keystore
+android/keystore/
+android/app/src/main/jniLibs/
+android/app/build/
+android/build/
+android/.gradle/
+.gradle/
+third_party/
+*.tmp

@@ -1,0 +1,23 @@
+[package]
+name = "compressor"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "compressor"
+crate-type = ["cdylib"]
+
+[dependencies]
+slint = { version = "1.8", default-features = false, features = ["backend-android-activity-06", "renderer-software"] }
+anyhow = "1"
+jni = "0.21"
+
+[build-dependencies]
+slint-build = "1.8"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
