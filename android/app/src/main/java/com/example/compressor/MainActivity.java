@@ -268,8 +268,13 @@ public class MainActivity extends Activity {
 
         LinearLayout contact = new LinearLayout(this);
         contact.setOrientation(LinearLayout.VERTICAL);
-        contact.addView(text(getString(R.string.telegram_label), 18, C_MUTED, false));
-        contact.addView(text(getString(R.string.telegram_handle), 18, C_ACCENT, true));
+        contact.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView tgLabel = text(getString(R.string.telegram_label), 9, C_MUTED, false);
+        TextView tgHandle = text(getString(R.string.telegram_handle), 9, C_ACCENT, true);
+        tgLabel.setGravity(Gravity.CENTER);
+        tgHandle.setGravity(Gravity.CENTER);
+        contact.addView(tgLabel);
+        contact.addView(tgHandle);
         contact.setClickable(true);
         contact.setOnClickListener(v -> openTelegram());
         h.addView(contact);
