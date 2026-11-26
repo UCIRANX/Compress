@@ -21,9 +21,8 @@ pub fn even(v: f64) -> u32 {
     (r & !1).max(2)
 }
 
-/// ضریب مقیاس: مساحت ≈ درصد (یعنی هر ضلع در sqrt(درصد))،
-/// ضلع کوچک زیر min_short نمی‌رود (اگر اصل بزرگ‌تر باشد)، و هیچ‌وقت بزرگ‌تر از اصل نمی‌شود.
-/// فقط به ضلع کوچک وابسته است، پس چرخش تصویر روی نتیجه اثری ندارد.
+/// ضریب مقیاس: مساحت ≈ درصد، ضلع کوچک زیر min_short نمی‌رود (اگر اصل بزرگ‌تر باشد)،
+/// و هیچ‌وقت بزرگ‌تر از اصل نمی‌شود. فقط به ضلع کوچک وابسته است.
 pub fn scale_factor(short: u32, percent: u32, keep: bool, min_short: u32) -> f64 {
     if keep {
         return 1.0;
@@ -37,9 +36,23 @@ pub fn scale_factor(short: u32, percent: u32, keep: bool, min_short: u32) -> f64
     }
 }
 
-/// فیلتر scale نسبت به ابعاد واقعی فریم (بعد از چرخش) کار می‌کند، پس جهت تصویر خراب نمی‌شود.
+/// فیلتر scale نسبت به ابعاد واقعی فریم (بعد از چرخش) کار می‌کند.
 pub fn scale_filter(k: f64) -> String {
     format!("scale=trunc(iw*{k:.6}/2)*2:trunc(ih*{k:.6}/2)*2")
+}
+
+/// فیلتر چرخش بر اساس برچسب EXIF Orientation (۱ تا ۸). برای ۱ چیزی اعمال نمی‌شود.
+pub fn orient_filter(o: i32) -> Option<&'static str> {
+    match o {
+        2 => Some("hflip"),
+        3 => Some("hflip,vflip"),
+        4 => Some("vflip"),
+        5 => Some("transpose=0"),
+        6 => Some("transpose=1"),
+        7 => Some("transpose=3"),
+        8 => Some("transpose=2"),
+        _ => None,
+    }
 }
 
 /// درصد هدف را به بیت‌ریت ویدیو (kbps) تبدیل می‌کند.
@@ -95,6 +108,8 @@ pub fn compress_video(
 }
 
 /// کدک‌ها ثابت‌اند: H.264 (libx264) برای mp4/mov/mkv و VP9 (libvpx-vp9) برای webm. x265 استفاده نمی‌شود.
+/// چرخش ویدیو توسط ffmpeg (autorotate) یک‌بار روی پیکسل‌ها اعمال می‌شود و برچسب چرخش در خروجی نمی‌ماند.
+/// متادیتای کانتینر حفظ می‌شود.
 pub fn encode_video(
     ffmpeg: &Path,
     input: &Path,
@@ -127,6 +142,7 @@ pub fn encode_video(
     let mut cmd = Command::new(ffmpeg);
     cmd.args(["-loglevel", "error", "-nostats", "-progress", "pipe:1", "-y", "-i"])
         .arg(input)
+        .args(["-map_metadata", "0", "-metadata:s:v:0", "rotate=0"])
         .args(["-vf", vf_arg.as_str()])
         .args(["-c:v", vcodec, "-b:v", kb.as_str(), "-maxrate", kb.as_str(), "-bufsize", buf.as_str()])
         .args(extra)
@@ -135,7 +151,8 @@ pub fn encode_video(
     run_with_progress(cmd, duration_s)
 }
 
-/// برمی‌گرداند: Some(هشدار) اگر کیفیت حتی با حداقل وضوح زیر حد باشد
+/// برمی‌گرداند: Some(هشدار) اگر کیفیت حتی با حداقل وضوح زیر حد باشد.
+/// چرخش عکس با orientation (EXIF) اعمال می‌شود و متادیتا جدا از این مسیر منتقل می‌شود.
 pub fn compress_image(
     ffmpeg: &Path,
     input: &Path,
@@ -143,15 +160,16 @@ pub fn compress_image(
     percent: u32,
     dims: (u32, u32),
     keep: bool,
+    orientation: i32,
 ) -> Result<Option<String>> {
     let (w, h) = dims;
     let short = w.min(h).max(1);
     let mut k = scale_factor(short, percent, keep, MIN_SHORT_SIDE_IMAGE);
     let ext = output.extension().and_then(|e| e.to_str()).unwrap_or_default();
 
-    // PNG کیفیت قابل تنظیم ندارد؛ فقط ابعاد تغییر می‌کند
+    // PNG کیفیت قابل تنظیم ندارد؛ فقط ابعاد و چرخش تغییر می‌کند
     if ext == "png" {
-        encode_image(ffmpeg, input, output, 100, k)?;
+        encode_image(ffmpeg, input, output, 100, k, orientation)?;
         return Ok(None);
     }
 
@@ -162,13 +180,13 @@ pub fn compress_image(
     loop {
         let kk = k;
         let q = best_quality_under(target, |q| {
-            encode_image(ffmpeg, input, &tmp, q, kk)?;
+            encode_image(ffmpeg, input, &tmp, q, kk, orientation)?;
             Ok(std::fs::metadata(&tmp)?.len())
         })?;
         let cur_short = short as f64 * k;
         let can_shrink = !keep && cur_short > MIN_SHORT_SIDE_IMAGE as f64 + 0.5;
         if q >= MIN_IMAGE_Q || !can_shrink {
-            encode_image(ffmpeg, input, output, q, k)?;
+            encode_image(ffmpeg, input, output, q, k, orientation)?;
             let _ = std::fs::remove_file(&tmp);
             return Ok(if q < MIN_IMAGE_Q {
                 Some(format!(
@@ -203,11 +221,18 @@ pub fn best_quality_under(target_bytes: u64, mut size_at: impl FnMut(u32) -> Res
     Ok(best)
 }
 
-fn encode_image(ffmpeg: &Path, input: &Path, output: &Path, q: u32, k: f64) -> Result<()> {
+fn encode_image(ffmpeg: &Path, input: &Path, output: &Path, q: u32, k: f64, orientation: i32) -> Result<()> {
     let ext = output.extension().and_then(|e| e.to_str()).unwrap_or_default();
-    let vf = scale_filter(k);
+    // چرخش را خودمان اعمال می‌کنیم؛ autorotate را خاموش می‌کنیم تا دو بار چرخش ندهیم
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(f) = orient_filter(orientation) {
+        parts.push(f.to_string());
+    }
+    parts.push(scale_filter(k));
+    let vf = parts.join(",");
+
     let mut cmd = Command::new(ffmpeg);
-    cmd.args(["-y", "-i"])
+    cmd.args(["-noautorotate", "-y", "-i"])
         .arg(input)
         .args(["-frames:v", "1", "-vf", vf.as_str()]);
     match ext {

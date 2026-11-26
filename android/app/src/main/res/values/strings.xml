@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">UC Tiny</string>
-    <string name="label_output_size">Output size:</string>
-    <string name="label_progress">Progress:</string>
-    <string name="percent_of_original">%1$s%% of original size</string>
+    <string name="output_size_line">Output size: %1$s%% of original size</string>
+    <string name="progress_line">Progress: %1$s%%</string>
     <string name="approx_output_size">Approx. output: %1$s</string>
     <string name="btn_resize">Resize</string>
     <string name="btn_photo_format">Photo format</string>

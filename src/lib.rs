@@ -3,7 +3,7 @@ pub mod job;
 pub mod storage;
 
 use anyhow::Result;
-use jni::objects::{JClass, JObjectArray, JString};
+use jni::objects::{JClass, JIntArray, JObjectArray, JString};
 use jni::sys::{jboolean, jint, jstring};
 use jni::JNIEnv;
 use std::path::PathBuf;
@@ -37,6 +37,7 @@ pub fn iso(s: &str) -> String {
 fn run(
     env: &mut JNIEnv,
     files: &JObjectArray,
+    orientations: &JIntArray,
     percent: jint,
     video_fmt: &str,
     photo_fmt: &str,
@@ -51,6 +52,8 @@ fn run(
         let s: String = env.get_string(&js)?.into();
         paths.push(s);
     }
+    let mut orients = vec![0i32; count as usize];
+    env.get_int_array_region(orientations, 0, &mut orients)?;
 
     let percent = (percent as u32).clamp(compress::MIN_PERCENT, compress::MAX_PERCENT);
     let ffmpeg = PathBuf::from(format!("{lib_dir}/libffmpeg.so"));
@@ -64,21 +67,32 @@ fn run(
     let mut ok = 0usize;
     let mut errs: Vec<String> = Vec::new();
     let mut reports: Vec<String> = Vec::new();
-    for p in paths {
+    // برای هر عکس موفق: "اندیس\tمسیر خروجی" تا اپ متادیتای EXIF را منتقل کند
+    let mut pairs: Vec<String> = Vec::new();
+    for (idx, p) in paths.into_iter().enumerate() {
         let input = PathBuf::from(&p);
         let name = input
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let shown = iso(&name);
-        match job::process(&ffmpeg, &ffprobe, &input, percent, video_fmt, photo_fmt, keep) {
-            Ok((_, in_fps, out_fps, note)) => {
+        match job::process(
+            &ffmpeg,
+            &ffprobe,
+            &input,
+            percent,
+            video_fmt,
+            photo_fmt,
+            keep,
+            orients[idx],
+        ) {
+            Ok((out, in_fps, out_fps, note)) => {
                 ok += 1;
                 if !note.is_empty() {
                     errs.push(format!("{} {shown}: {note}", tr("هشدار", "Warning")));
                 }
-                // فقط برای ویدیو (فریم‌ریت ورودی > ۰) گزارش و بررسی فریم‌ریت انجام می‌شود
                 if in_fps > 0.0 {
+                    // ویدیو: فقط بررسی فریم‌ریت
                     reports.push(format!("{shown}: {in_fps:.0} → {out_fps:.0}"));
                     if out_fps <= 0.0 {
                         errs.push(format!(
@@ -94,6 +108,9 @@ fn run(
                             tr(" است (انتظار ۳۰)", " (expected 30)")
                         ));
                     }
+                } else {
+                    // عکس: مسیر خروجی را برای انتقال EXIF برمی‌گردانیم
+                    pairs.push(format!("{idx}\t{}", out.display()));
                 }
             }
             Err(e) => errs.push(format!("{shown}: {e:#}")),
@@ -104,9 +121,9 @@ fn run(
     }
 
     let mut msg = if FA.load(Ordering::Relaxed) {
-        format!("{ok} از {total} فایل در {} ذخیره شد.", iso("DCIM/Compress"))
+        format!("{ok} از {total} فایل در {} ذخیره شد.", iso("Pictures/Compress"))
     } else {
-        format!("{ok} of {total} files saved to {}.", iso("DCIM/Compress"))
+        format!("{ok} of {total} files saved to {}.", iso("Pictures/Compress"))
     };
     if !errs.is_empty() {
         msg.push_str(tr("\nهشدارها و خطاها:\n", "\nWarnings and errors:\n"));
@@ -116,6 +133,9 @@ fn run(
         msg.push_str(tr("\nفریم‌ریت (ورودی → خروجی):\n", "\nFrame rate (input → output):\n"));
         msg.push_str(&reports.join("\n"));
     }
+    // جداکننده‌ی نامرئی: بعد از آن فهرست خروجی‌های عکس است که اپ می‌خواند
+    msg.push('\u{1}');
+    msg.push_str(&pairs.join("\n"));
     Ok(msg)
 }
 
@@ -124,6 +144,7 @@ pub extern "system" fn Java_com_example_compressor_NativeCore_processFiles(
     mut env: JNIEnv,
     _class: JClass,
     files: JObjectArray,
+    orientations: JIntArray,
     percent: jint,
     video_format: JString,
     photo_format: JString,
@@ -136,7 +157,7 @@ pub extern "system" fn Java_com_example_compressor_NativeCore_processFiles(
         let vf: String = env.get_string(&video_format)?.into();
         let pf: String = env.get_string(&photo_format)?.into();
         let dir: String = env.get_string(&lib_dir)?.into();
-        run(&mut env, &files, percent, &vf, &pf, &dir, keep != 0)
+        run(&mut env, &files, &orientations, percent, &vf, &pf, &dir, keep != 0)
     })();
     let msg = result.unwrap_or_else(|e| format!("{}{e:#}", tr("خطا: ", "Error: ")));
     match env.new_string(msg) {

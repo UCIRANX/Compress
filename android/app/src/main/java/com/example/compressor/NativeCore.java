@@ -7,9 +7,12 @@ public final class NativeCore {
 
     private NativeCore() {}
 
-    /** keepSize = true یعنی ابعاد اصلی حفظ شود؛ persian = زبان پیام‌های برنامه */
-    public static native String processFiles(String[] paths, int percent, String videoFormat,
-                                             String photoFormat, String libDir,
+    /**
+     * orientations[i] برچسب EXIF چرخش فایل i (۱ تا ۸، برای ویدیو ۰).
+     * پاسخ: متن نتیجه، و بعد از کاراکتر \u0001 فهرست "اندیس\tمسیر خروجی" عکس‌ها.
+     */
+    public static native String processFiles(String[] paths, int[] orientations, int percent,
+                                             String videoFormat, String photoFormat, String libDir,
                                              boolean keepSize, boolean persian);
 
     /** پیشرفت کل از ۰ تا ۱۰۰۰ */

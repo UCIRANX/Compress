@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">UC Tiny</string>
-    <string name="label_output_size">حجم خروجی:</string>
-    <string name="label_progress">پیشرفت:</string>
-    <string name="percent_of_original">%1$s%% حجم فایل اصلی</string>
-    <string name="approx_output_size">حجم تقریبی خروجی: %1$s</string>
+    <string name="output_size_line">حجم خروجی: \u2066%1$s%%\u2069 حجم فایل اصلی</string>
+    <string name="progress_line">پیشرفت: \u2066%1$s%%\u2069</string>
+    <string name="approx_output_size">حجم تقریبی خروجی: \u2066%1$s\u2069</string>
     <string name="btn_resize">تغییر سایزبندی</string>
     <string name="btn_photo_format">فرمت عکس</string>
     <string name="btn_video_format">فرمت فیلم</string>

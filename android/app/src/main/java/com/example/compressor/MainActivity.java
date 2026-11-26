@@ -2,16 +2,18 @@ package com.example.compressor;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.ExifInterface;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
@@ -35,17 +37,32 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     private static final int REQ_PICK = 42;
 
-    // جهت‌گیری متن‌ها با زبان گوشی تنظیم می‌شود؛ این مارک‌ها برای عدد و درصد است
-    private static final String LRM = "\u200E";
-
     private static final int C_BG = 0xFF0E1015;
     private static final int C_CARD = 0xFF181B23;
     private static final int C_CHIP = 0xFF252B38;
     private static final int C_ACCENT = 0xFF6C8CFF;
     private static final int C_TEXT = 0xFFEEF0F5;
     private static final int C_MUTED = 0xFF8A93A6;
+    private static final int C_GLASS = 0x33FFFFFF;
+    private static final int C_GLASS_EDGE = 0x55FFFFFF;
+    private static final int C_GLASS_SEL = 0x446C8CFF;
 
-    /** یک انتخاب تک‌گزینه‌ای: مقدارها (کد) و برچسب‌های نمایشی و نمایشگر فعلی */
+    /** تگ‌های EXIF که از عکس اصلی به خروجی منتقل می‌شوند (چرخش عمداً نیست) */
+    private static final String[] EXIF_COPY_TAGS = {
+            ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL,
+            ExifInterface.TAG_DATETIME_DIGITIZED, ExifInterface.TAG_MAKE, ExifInterface.TAG_MODEL,
+            ExifInterface.TAG_SOFTWARE, ExifInterface.TAG_IMAGE_DESCRIPTION, ExifInterface.TAG_ARTIST,
+            ExifInterface.TAG_COPYRIGHT, ExifInterface.TAG_USER_COMMENT,
+            ExifInterface.TAG_GPS_LATITUDE, ExifInterface.TAG_GPS_LATITUDE_REF,
+            ExifInterface.TAG_GPS_LONGITUDE, ExifInterface.TAG_GPS_LONGITUDE_REF,
+            ExifInterface.TAG_GPS_ALTITUDE, ExifInterface.TAG_GPS_ALTITUDE_REF,
+            ExifInterface.TAG_GPS_TIMESTAMP, ExifInterface.TAG_GPS_DATESTAMP,
+            ExifInterface.TAG_FOCAL_LENGTH, ExifInterface.TAG_F_NUMBER,
+            ExifInterface.TAG_EXPOSURE_TIME, ExifInterface.TAG_ISO_SPEED_RATINGS,
+            ExifInterface.TAG_WHITE_BALANCE, ExifInterface.TAG_FLASH
+    };
+
+    /** یک انتخاب تک‌گزینه‌ای: کدها، برچسب‌ها، مقدار فعلی و نمایشگرش */
     private static class Choice {
         String[] values;
         String[] labels;
@@ -57,6 +74,7 @@ public class MainActivity extends Activity {
     private final Choice sizeChoice = new Choice();
     private final Choice photoChoice = new Choice();
     private final Choice videoChoice = new Choice();
+    private Choice openChoice = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile boolean busy = false;
     private volatile boolean inNative = false;
@@ -64,14 +82,15 @@ public class MainActivity extends Activity {
     private String libDir;
 
     private SeekBar seek;
-    private TextView percentValue;
+    private TextView outputSizeText;
     private TextView sizeHint;
     private TextView selectedText;
     private TextView statusText;
-    private TextView barText;
+    private TextView progressText;
     private ProgressBar bar;
     private TextView pickBtn;
     private TextView startBtn;
+    private LinearLayout optionPanel;
 
     private final Runnable poll = new Runnable() {
         @Override
@@ -81,7 +100,7 @@ public class MainActivity extends Activity {
             }
             int pm = inNative ? NativeCore.progress() : 0;
             bar.setProgress(pm);
-            barText.setText(LRM + (pm / 10) + "%");
+            progressText.setText(getString(R.string.progress_line, String.valueOf(pm / 10)));
             handler.postDelayed(this, 200);
         }
     };
@@ -111,13 +130,10 @@ public class MainActivity extends Activity {
         root.setPadding(dp(20), dp(20), dp(20), dp(28));
         scroll.addView(root);
 
-        // ---- حجم خروجی: برچسب + درصد + نوار + حجم تقریبی
+        // ---- حجم خروجی: یک خط متن + نوار + حجم تقریبی
         LinearLayout c1 = card();
-        LinearLayout head1 = row();
-        head1.addView(text(getString(R.string.label_output_size), 16, C_TEXT, true), weightLp());
-        percentValue = text("", 16, C_ACCENT, true);
-        head1.addView(percentValue);
-        c1.addView(head1);
+        outputSizeText = text("", 16, C_TEXT, true);
+        c1.addView(outputSizeText);
 
         seek = new SeekBar(this);
         seek.setMax(17);          // 0..17 => 5..90 با گام ۵
@@ -144,10 +160,9 @@ public class MainActivity extends Activity {
         addCard(root, c1);
         updatePercentText();
 
-        // ---- سه دکمه در یک ردیف: تغییر سایزبندی، فرمت عکس، فرمت فیلم
+        // ---- سه دکمه در یک ردیف؛ با کلیک، گزینه‌ها زیر همین ردیف باز می‌شوند
         LinearLayout cButtons = card();
         LinearLayout btnRow = row();
-        btnRow.setGravity(Gravity.CENTER);
         btnRow.addView(optionButton(getString(R.string.btn_resize), sizeChoice,
                 new String[]{"auto", "original"},
                 new String[]{getString(R.string.opt_auto), getString(R.string.opt_original)}, "auto"));
@@ -158,6 +173,13 @@ public class MainActivity extends Activity {
                 new String[]{"Original", "mp4", "mkv"},
                 new String[]{getString(R.string.opt_original), "mp4", "mkv"}, "Original"));
         cButtons.addView(btnRow);
+
+        optionPanel = new LinearLayout(this);
+        optionPanel.setOrientation(LinearLayout.VERTICAL);
+        optionPanel.setPadding(dp(8), dp(8), dp(8), dp(8));
+        optionPanel.setBackground(glass(18));
+        optionPanel.setVisibility(View.GONE);
+        cButtons.addView(optionPanel, matchTop(dp(12)));
         addCard(root, cButtons);
 
         // ---- فایل‌ها و دکمه‌ها
@@ -175,13 +197,10 @@ public class MainActivity extends Activity {
         c3.addView(startBtn);
         addCard(root, c3);
 
-        // ---- پیشرفت: برچسب + درصد
+        // ---- پیشرفت: یک خط متن + نوار + وضعیت
         LinearLayout c4 = card();
-        LinearLayout head4 = row();
-        head4.addView(text(getString(R.string.label_progress), 16, C_TEXT, true), weightLp());
-        barText = text(LRM + "0%", 16, C_ACCENT, true);
-        head4.addView(barText);
-        c4.addView(head4);
+        progressText = text(getString(R.string.progress_line, "0"), 16, C_TEXT, true);
+        c4.addView(progressText);
 
         bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         bar.setMax(1000);
@@ -203,10 +222,10 @@ public class MainActivity extends Activity {
     }
 
     private void updatePercentText() {
-        if (percentValue == null) {
+        if (outputSizeText == null) {
             return;
         }
-        percentValue.setText(getString(R.string.percent_of_original, LRM + percent()));
+        outputSizeText.setText(getString(R.string.output_size_line, String.valueOf(percent())));
         updateSizeHint();
     }
 
@@ -216,7 +235,7 @@ public class MainActivity extends Activity {
         }
         if (selectedSize > 0) {
             sizeHint.setText(getString(R.string.approx_output_size,
-                    LRM + formatSize(selectedSize * percent() / 100)));
+                    formatSize(selectedSize * percent() / 100)));
         } else {
             sizeHint.setText("");
         }
@@ -229,7 +248,7 @@ public class MainActivity extends Activity {
         return String.format(Locale.US, "%d KB", bytes / 1024L);
     }
 
-    /** دکمه‌ای که عنوان و مقدار فعلی را نشان می‌دهد و با کلیک پاپ‌آپ گزینه‌ها را باز می‌کند */
+    /** دکمه‌ی شیشه‌ای که عنوان و مقدار فعلی را نشان می‌دهد */
     private LinearLayout optionButton(String title, Choice c, String[] values, String[] labels, String initial) {
         c.values = values;
         c.labels = labels;
@@ -239,7 +258,7 @@ public class MainActivity extends Activity {
         b.setOrientation(LinearLayout.VERTICAL);
         b.setGravity(Gravity.CENTER);
         b.setPadding(dp(8), dp(12), dp(8), dp(12));
-        b.setBackground(rounded(C_CHIP, 14));
+        b.setBackground(glass(14));
         b.setClickable(true);
 
         TextView t1 = text(title, 12, C_MUTED, false);
@@ -250,7 +269,7 @@ public class MainActivity extends Activity {
 
         b.addView(t1);
         b.addView(c.valueView);
-        b.setOnClickListener(v -> showPopup(title, c));
+        b.setOnClickListener(v -> togglePanel(c));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         lp.setMargins(dp(4), 0, dp(4), 0);
@@ -258,20 +277,42 @@ public class MainActivity extends Activity {
         return b;
     }
 
-    private void showPopup(String title, final Choice c) {
+    /** باز یا بسته کردن پنل گزینه‌های زیر همان ردیف */
+    private void togglePanel(Choice c) {
         if (busy) {
             return;
         }
-        int checked = indexOf(c.values, c.selected);
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
-                .setTitle(title)
-                .setSingleChoiceItems(c.labels, checked, (d, which) -> {
-                    c.selected = c.values[which];
-                    refreshValue(c);
-                    d.dismiss();
-                })
-                .setNegativeButton(getString(R.string.cancel), null)
-                .show();
+        if (openChoice == c) {
+            closePanel();
+            return;
+        }
+        openChoice = c;
+        renderPanel(c);
+        optionPanel.setVisibility(View.VISIBLE);
+    }
+
+    private void closePanel() {
+        openChoice = null;
+        optionPanel.setVisibility(View.GONE);
+        optionPanel.removeAllViews();
+    }
+
+    private void renderPanel(final Choice c) {
+        optionPanel.removeAllViews();
+        for (int i = 0; i < c.values.length; i++) {
+            final int idx = i;
+            boolean on = c.values[i].equals(c.selected);
+            TextView row = text(c.labels[i], 15, on ? C_ACCENT : C_TEXT, on);
+            row.setPadding(dp(16), dp(14), dp(16), dp(14));
+            row.setBackground(glassFill(on ? C_GLASS_SEL : C_GLASS, 12));
+            row.setClickable(true);
+            row.setOnClickListener(v -> {
+                c.selected = c.values[idx];
+                refreshValue(c);
+                closePanel();
+            });
+            optionPanel.addView(row, matchTop(i == 0 ? 0 : dp(8)));
+        }
     }
 
     private void refreshValue(Choice c) {
@@ -288,13 +329,15 @@ public class MainActivity extends Activity {
         return -1;
     }
 
+    /** انتخاب فایل از گالری (عکس و ویدیو) با امکان چند انتخاب */
     private void pickFiles() {
         if (busy) {
             return;
         }
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
+        i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
         i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         startActivityForResult(i, REQ_PICK);
     }
@@ -340,6 +383,7 @@ public class MainActivity extends Activity {
         if (busy || selected.isEmpty()) {
             return;
         }
+        closePanel();
         busy = true;
         inNative = false;
         updateStartState();
@@ -355,41 +399,79 @@ public class MainActivity extends Activity {
 
         NativeCore.reset();
         bar.setProgress(0);
-        barText.setText(LRM + "0%");
+        progressText.setText(getString(R.string.progress_line, "0"));
         statusText.setText(getString(R.string.status_preparing));
         handler.post(poll);
 
         new Thread(() -> {
             List<String> paths = new ArrayList<>();
+            List<Uri> okUris = new ArrayList<>();
+            List<Integer> okOrient = new ArrayList<>();
             int failedCopy = 0;
             for (Uri u : uris) {
                 try {
                     paths.add(copyToCache(u));
+                    okUris.add(u);
+                    okOrient.add(isImageUri(u) ? exifOrientation(u) : 0);
                 } catch (IOException e) {
                     failedCopy++;
                 }
             }
+            int[] orient = new int[okOrient.size()];
+            for (int i = 0; i < orient.length; i++) {
+                orient[i] = okOrient.get(i);
+            }
 
-            String tmp;
+            String text;
+            String pairBlock = "";
             try {
                 runOnUiThread(() -> statusText.setText(getString(R.string.status_processing)));
                 inNative = true;
-                String result = NativeCore.processFiles(paths.toArray(new String[0]),
+                String raw = NativeCore.processFiles(paths.toArray(new String[0]), orient,
                         pct, vf, pf, dir, keep, fa);
+                int sep = raw.indexOf('\u0001');
+                text = sep >= 0 ? raw.substring(0, sep) : raw;
+                pairBlock = sep >= 0 ? raw.substring(sep + 1) : "";
                 if (failedCopy > 0) {
-                    result = result + "\n" + getString(R.string.unreadable_files, failedCopy);
+                    text = text + "\n" + getString(R.string.unreadable_files, failedCopy);
                 }
-                tmp = result;
             } catch (Throwable t) {
-                tmp = getString(R.string.error_format, String.valueOf(t));
+                text = getString(R.string.error_format, String.valueOf(t));
             } finally {
                 inNative = false;
                 busy = false;
             }
-            final String msg = tmp;
+
+            // انتقال متادیتای EXIF به عکس‌های خروجی (بدون برچسب چرخش، چون پیکسل‌ها چرخیده‌اند)
+            for (String line : pairBlock.split("\n")) {
+                String[] parts = line.split("\t", 2);
+                if (parts.length != 2) {
+                    continue;
+                }
+                try {
+                    int idx = Integer.parseInt(parts[0]);
+                    copyExif(okUris.get(idx), parts[1]);
+                } catch (Exception ignored) {
+                    // اگر متادیتا منتقل نشد، فایل خروجی همچنان ساخته شده است
+                }
+            }
+
+            // اسکن پوشه تا فایل‌ها در گالری دیده شوند
+            File outDir = new File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_PICTURES), "Compress");
+            File[] outs = outDir.listFiles();
+            if (outs != null && outs.length > 0) {
+                String[] outPaths = new String[outs.length];
+                for (int i = 0; i < outs.length; i++) {
+                    outPaths[i] = outs[i].getAbsolutePath();
+                }
+                MediaScannerConnection.scanFile(this, outPaths, null, null);
+            }
+
+            final String msg = text;
             runOnUiThread(() -> {
                 bar.setProgress(1000);
-                barText.setText(LRM + "100%");
+                progressText.setText(getString(R.string.progress_line, "100"));
                 statusText.setText(msg);
                 selected.clear();
                 selectedSize = -1;
@@ -399,6 +481,44 @@ public class MainActivity extends Activity {
                 updateStartState();
             });
         }).start();
+    }
+
+    private boolean isImageUri(Uri u) {
+        String type = getContentResolver().getType(u);
+        return type != null && type.startsWith("image/");
+    }
+
+    /** برچسب چرخش EXIF عکس (۱ تا ۸) */
+    private int exifOrientation(Uri u) {
+        try (InputStream in = getContentResolver().openInputStream(u)) {
+            if (in == null) {
+                return 1;
+            }
+            ExifInterface ex = new ExifInterface(in);
+            return ex.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+        } catch (Exception e) {
+            return 1;
+        }
+    }
+
+    private void copyExif(Uri src, String outPath) {
+        try (InputStream in = getContentResolver().openInputStream(src)) {
+            if (in == null) {
+                return;
+            }
+            ExifInterface s = new ExifInterface(in);
+            ExifInterface d = new ExifInterface(outPath);
+            for (String tag : EXIF_COPY_TAGS) {
+                String v = s.getAttribute(tag);
+                if (v != null) {
+                    d.setAttribute(tag, v);
+                }
+            }
+            d.setAttribute(ExifInterface.TAG_ORIENTATION, String.valueOf(ExifInterface.ORIENTATION_NORMAL));
+            d.saveAttributes();
+        } catch (Exception ignored) {
+            // بعضی فرمت‌ها (مثلاً برخی PNG) از نوشتن EXIF پشتیبانی نمی‌کنند
+        }
     }
 
     private void updateStartState() {
@@ -451,10 +571,6 @@ public class MainActivity extends Activity {
         return r;
     }
 
-    private LinearLayout.LayoutParams weightLp() {
-        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-    }
-
     private LinearLayout.LayoutParams matchTop(int top) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -466,6 +582,19 @@ public class MainActivity extends Activity {
         GradientDrawable g = new GradientDrawable();
         g.setColor(color);
         g.setCornerRadius(dp(radiusDp));
+        return g;
+    }
+
+    /** شیشه‌ای: پرکننده نیمه‌شفاف با لبه‌ی روشن */
+    private GradientDrawable glass(int radiusDp) {
+        return glassFill(C_GLASS, radiusDp);
+    }
+
+    private GradientDrawable glassFill(int fill, int radiusDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(fill);
+        g.setCornerRadius(dp(radiusDp));
+        g.setStroke(dp(1), C_GLASS_EDGE);
         return g;
     }
 
