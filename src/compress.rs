@@ -1,3 +1,4 @@
+use crate::tr;
 use anyhow::{bail, Context, Result};
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
@@ -5,8 +6,10 @@ use std::process::{Command, Stdio};
 
 pub const MIN_PERCENT: u32 = 5;
 pub const MAX_PERCENT: u32 = 90;
-/// کمترین ضلع کوچک‌تر خروجی (اگر اصلی از این کوچک‌تر نباشد)
-pub const MIN_SHORT_SIDE: u32 = 480;
+/// کمترین ضلع کوچک‌تر برای ویدیو
+pub const MIN_SHORT_SIDE_VIDEO: u32 = 360;
+/// کمترین ضلع کوچک‌تر برای عکس
+pub const MIN_SHORT_SIDE_IMAGE: u32 = 480;
 /// کمترین کیفیت قابل قبول برای JPEG/WebP
 pub const MIN_IMAGE_Q: u32 = 40;
 const AUDIO_KBPS: u32 = 96;
@@ -18,28 +21,25 @@ pub fn even(v: f64) -> u32 {
     (r & !1).max(2)
 }
 
-/// ابعاد خروجی: مساحت متناسب با درصد (یعنی هر ضلع در sqrt(درصد) ضرب می‌شود)،
-/// نسبت تصویر حفظ می‌شود، ابعاد زوج‌اند، و ضلع کوچک‌تر زیر MIN_SHORT_SIDE نمی‌رود.
-/// هیچ‌وقت بزرگ‌تر از اصل نمی‌شود.
-pub fn scaled_dims(w: u32, h: u32, percent: u32) -> (u32, u32) {
+/// ضریب مقیاس: مساحت ≈ درصد (یعنی هر ضلع در sqrt(درصد))،
+/// ضلع کوچک زیر min_short نمی‌رود (اگر اصل بزرگ‌تر باشد)، و هیچ‌وقت بزرگ‌تر از اصل نمی‌شود.
+/// فقط به ضلع کوچک وابسته است، پس چرخش تصویر روی نتیجه اثری ندارد.
+pub fn scale_factor(short: u32, percent: u32, keep: bool, min_short: u32) -> f64 {
+    if keep {
+        return 1.0;
+    }
     let s = (percent as f64 / 100.0).sqrt();
-    let short = w.min(h) as f64;
-    let k = if short * s < MIN_SHORT_SIDE as f64 {
-        (MIN_SHORT_SIDE as f64 / short).min(1.0).max(s)
+    let short_f = short.max(1) as f64;
+    if short_f * s < min_short as f64 {
+        (min_short as f64 / short_f).min(1.0).max(s)
     } else {
         s
-    };
-    (even(w as f64 * k), even(h as f64 * k))
+    }
 }
 
-/// اگر کاربر «اصلی» انتخاب کرده باشد ابعاد دست‌نخورده می‌ماند (فقط زوج می‌شود)،
-/// وگرنه طبق درصد و قوانین scaled_dims تغییر می‌کند.
-pub fn target_dims(w: u32, h: u32, percent: u32, keep: bool) -> (u32, u32) {
-    if keep {
-        (even(w as f64), even(h as f64))
-    } else {
-        scaled_dims(w, h, percent)
-    }
+/// فیلتر scale نسبت به ابعاد واقعی فریم (بعد از چرخش) کار می‌کند، پس جهت تصویر خراب نمی‌شود.
+pub fn scale_filter(k: f64) -> String {
+    format!("scale=trunc(iw*{k:.6}/2)*2:trunc(ih*{k:.6}/2)*2")
 }
 
 /// درصد هدف را به بیت‌ریت ویدیو (kbps) تبدیل می‌کند.
@@ -74,27 +74,27 @@ pub fn compress_video(
     keep: bool,
 ) -> Result<Option<String>> {
     let (w, h) = dims;
-    let (ow, oh) = target_dims(w, h, percent, keep);
+    let k = scale_factor(w.min(h), percent, keep, MIN_SHORT_SIDE_VIDEO);
+    let (ow, oh) = (even(w as f64 * k), even(h as f64 * k));
     let src = std::fs::metadata(input)?.len();
     let kbps = video_bitrate_kbps(duration_s, src, percent);
-    let out_fps = if fps <= 0.0 {
-        MAX_FPS
-    } else {
-        fps.min(MAX_FPS)
-    };
+    let out_fps = if fps <= 0.0 { MAX_FPS } else { fps.min(MAX_FPS) };
     let ext = output.extension().and_then(|e| e.to_str()).unwrap_or_default();
     let bpp = bits_per_pixel(kbps, ow, oh, out_fps);
     let warn = if bpp < bpp_floor(ext) {
-        Some(format!("کیفیت کم است (bpp {bpp:.3}) — حجم هدف برای این ابعاد کم است"))
+        Some(format!(
+            "{} (bpp {bpp:.3}){}",
+            tr("کیفیت کم است", "Low quality"),
+            tr(" — حجم هدف برای این ابعاد کم است", " — target size is small for this resolution")
+        ))
     } else {
         None
     };
-    encode_video(ffmpeg, input, output, kbps, duration_s, fps, ow, oh)?;
+    encode_video(ffmpeg, input, output, kbps, duration_s, fps, k)?;
     Ok(warn)
 }
 
 /// کدک‌ها ثابت‌اند: H.264 (libx264) برای mp4/mov/mkv و VP9 (libvpx-vp9) برای webm. x265 استفاده نمی‌شود.
-/// فریم‌ریت بیشتر از ۳۰ به ۳۰ کاهش می‌یابد؛ ابعاد با فیلتر scale تنظیم می‌شوند.
 pub fn encode_video(
     ffmpeg: &Path,
     input: &Path,
@@ -102,8 +102,7 @@ pub fn encode_video(
     kbps: u32,
     duration_s: f64,
     fps: f64,
-    ow: u32,
-    oh: u32,
+    k: f64,
 ) -> Result<()> {
     let ext = output.extension().and_then(|e| e.to_str()).unwrap_or_default();
     let (vcodec, acodec, extra): (&str, &str, Vec<&str>) = match ext {
@@ -113,14 +112,14 @@ pub fn encode_video(
             "vorbis",
             vec!["-row-mt", "1", "-deadline", "good", "-cpu-used", "2", "-strict", "-2"],
         ),
-        other => bail!("فرمت ویدیوی خروجی پشتیبانی نمی‌شود: {other}"),
+        other => bail!("{}{other}", tr("فرمت ویدیوی خروجی پشتیبانی نمی‌شود: ", "Unsupported video output format: ")),
     };
 
     let mut vf: Vec<String> = Vec::new();
     if fps > MAX_FPS {
         vf.push("fps=30".to_string());
     }
-    vf.push(format!("scale={ow}:{oh}"));
+    vf.push(scale_filter(k));
     let vf_arg = vf.join(",");
 
     let kb = format!("{kbps}k");
@@ -145,12 +144,14 @@ pub fn compress_image(
     dims: (u32, u32),
     keep: bool,
 ) -> Result<Option<String>> {
-    let (mut cw, mut ch) = target_dims(dims.0, dims.1, percent, keep);
+    let (w, h) = dims;
+    let short = w.min(h).max(1);
+    let mut k = scale_factor(short, percent, keep, MIN_SHORT_SIDE_IMAGE);
     let ext = output.extension().and_then(|e| e.to_str()).unwrap_or_default();
 
     // PNG کیفیت قابل تنظیم ندارد؛ فقط ابعاد تغییر می‌کند
     if ext == "png" {
-        encode_image(ffmpeg, input, output, 100, cw, ch)?;
+        encode_image(ffmpeg, input, output, 100, k)?;
         return Ok(None);
     }
 
@@ -159,24 +160,28 @@ pub fn compress_image(
     // پسوند واقعی را نگه می‌داریم چون ffmpeg از روی پسوند فرمت را تشخیص می‌دهد
     let tmp = output.with_extension(format!("tmp.{ext}"));
     loop {
+        let kk = k;
         let q = best_quality_under(target, |q| {
-            encode_image(ffmpeg, input, &tmp, q, cw, ch)?;
+            encode_image(ffmpeg, input, &tmp, q, kk)?;
             Ok(std::fs::metadata(&tmp)?.len())
         })?;
-        let can_shrink = !keep && cw.min(ch) > MIN_SHORT_SIDE;
+        let cur_short = short as f64 * k;
+        let can_shrink = !keep && cur_short > MIN_SHORT_SIDE_IMAGE as f64 + 0.5;
         if q >= MIN_IMAGE_Q || !can_shrink {
-            encode_image(ffmpeg, input, output, q, cw, ch)?;
+            encode_image(ffmpeg, input, output, q, k)?;
             let _ = std::fs::remove_file(&tmp);
-            let warn = if q < MIN_IMAGE_Q {
-                Some(format!("کیفیت کم است (q {q}) — حجم هدف برای این ابعاد کم است"))
+            return Ok(if q < MIN_IMAGE_Q {
+                Some(format!(
+                    "{} (q {q}){}",
+                    tr("کیفیت کم است", "Low quality"),
+                    tr(" — حجم هدف برای این ابعاد کم است", " — target size is small for this resolution")
+                ))
             } else {
                 None
-            };
-            return Ok(warn);
+            });
         }
-        // کیفیت زیر حد است و هنوز می‌توان وضوح را کم کرد؛ ۱۰٪ کوچک‌تر و دوباره
-        cw = even(cw as f64 * 0.9);
-        ch = even(ch as f64 * 0.9);
+        // کیفیت زیر حد است و هنوز می‌شود کمی کوچک‌تر کرد؛ تا کف ۴۸۰ پیکسل
+        k = (k * 0.9).max(MIN_SHORT_SIDE_IMAGE as f64 / short as f64);
     }
 }
 
@@ -198,9 +203,9 @@ pub fn best_quality_under(target_bytes: u64, mut size_at: impl FnMut(u32) -> Res
     Ok(best)
 }
 
-fn encode_image(ffmpeg: &Path, input: &Path, output: &Path, q: u32, w: u32, h: u32) -> Result<()> {
+fn encode_image(ffmpeg: &Path, input: &Path, output: &Path, q: u32, k: f64) -> Result<()> {
     let ext = output.extension().and_then(|e| e.to_str()).unwrap_or_default();
-    let vf = format!("scale={w}:{h}");
+    let vf = scale_filter(k);
     let mut cmd = Command::new(ffmpeg);
     cmd.args(["-y", "-i"])
         .arg(input)
@@ -218,26 +223,29 @@ fn encode_image(ffmpeg: &Path, input: &Path, output: &Path, q: u32, w: u32, h: u
         "png" => {
             cmd.args(["-compression_level", "100"]);
         }
-        other => bail!("فرمت تصویری خروجی پشتیبانی نمی‌شود: {other}"),
+        other => bail!("{}{other}", tr("فرمت تصویری خروجی پشتیبانی نمی‌شود: ", "Unsupported image output format: ")),
     }
     cmd.arg(output);
     run(cmd)
 }
 
 pub fn run(mut cmd: Command) -> Result<()> {
-    let out = cmd.output().context("ffmpeg اجرا نشد")?;
+    let out = cmd.output().context(tr("ffmpeg اجرا نشد", "Could not run ffmpeg"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        bail!("خطای ffmpeg: {}", err.lines().last().unwrap_or("نامشخص"));
+        bail!("{}{}", tr("خطای ffmpeg: ", "ffmpeg error: "), err.lines().last().unwrap_or(""));
     }
     Ok(())
 }
 
-/// ffmpeg را اجرا می‌کند و از خروجی `-progress` درصد پیشرفت فایل جاری را به لایهٔ کل گزارش می‌دهد.
+/// ffmpeg را اجرا می‌کند و از خروجی `-progress` درصد پیشرفت فایل جاری را گزارش می‌دهد.
 fn run_with_progress(mut cmd: Command, duration_s: f64) -> Result<()> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().context("ffmpeg اجرا نشد")?;
-    let stdout = child.stdout.take().context("خروجی ffmpeg در دسترس نیست")?;
+    let mut child = cmd.spawn().context(tr("ffmpeg اجرا نشد", "Could not run ffmpeg"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .context(tr("خروجی ffmpeg در دسترس نیست", "ffmpeg output is not available"))?;
     for line in BufReader::new(stdout).lines() {
         let line = line?;
         if let Some(v) = line.strip_prefix("out_time_us=") {
@@ -255,7 +263,7 @@ fn run_with_progress(mut cmd: Command, duration_s: f64) -> Result<()> {
     }
     let status = child.wait()?;
     if !status.success() {
-        bail!("خطای ffmpeg: {}", err.lines().last().unwrap_or("نامشخص"));
+        bail!("{}{}", tr("خطای ffmpeg: ", "ffmpeg error: "), err.lines().last().unwrap_or(""));
     }
     Ok(())
 }

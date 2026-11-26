@@ -2,6 +2,7 @@ package com.example.compressor;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
@@ -16,7 +17,6 @@ import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -35,6 +35,9 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     private static final int REQ_PICK = 42;
 
+    // جهت‌گیری متن‌ها با زبان گوشی تنظیم می‌شود؛ این مارک‌ها برای عدد و درصد است
+    private static final String LRM = "\u200E";
+
     private static final int C_BG = 0xFF0E1015;
     private static final int C_CARD = 0xFF181B23;
     private static final int C_CHIP = 0xFF252B38;
@@ -42,15 +45,18 @@ public class MainActivity extends Activity {
     private static final int C_TEXT = 0xFFEEF0F5;
     private static final int C_MUTED = 0xFF8A93A6;
 
-    private static class ChipSet {
-        final List<TextView> views = new ArrayList<>();
+    /** یک انتخاب تک‌گزینه‌ای: مقدارها (کد) و برچسب‌های نمایشی و نمایشگر فعلی */
+    private static class Choice {
+        String[] values;
+        String[] labels;
         String selected;
+        TextView valueView;
     }
 
     private final List<Uri> selected = new ArrayList<>();
-    private final ChipSet photoSet = new ChipSet();
-    private final ChipSet videoSet = new ChipSet();
-    private final ChipSet sizeSet = new ChipSet();
+    private final Choice sizeChoice = new Choice();
+    private final Choice photoChoice = new Choice();
+    private final Choice videoChoice = new Choice();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile boolean busy = false;
     private volatile boolean inNative = false;
@@ -75,7 +81,7 @@ public class MainActivity extends Activity {
             }
             int pm = inNative ? NativeCore.progress() : 0;
             bar.setProgress(pm);
-            barText.setText((pm / 10) + "%");
+            barText.setText(LRM + (pm / 10) + "%");
             handler.postDelayed(this, 200);
         }
     };
@@ -100,14 +106,15 @@ public class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        // جهت از زبان گوشی می‌آید: فارسی راست‌به‌چپ، انگلیسی چپ‌به‌راست
+        root.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
         root.setPadding(dp(20), dp(20), dp(20), dp(28));
         scroll.addView(root);
 
         // ---- حجم خروجی: برچسب + درصد + نوار + حجم تقریبی
         LinearLayout c1 = card();
         LinearLayout head1 = row();
-        head1.addView(text("حجم خروجی:", 16, C_TEXT, true), weightLp());
+        head1.addView(text(getString(R.string.label_output_size), 16, C_TEXT, true), weightLp());
         percentValue = text("", 16, C_ACCENT, true);
         head1.addView(percentValue);
         c1.addView(head1);
@@ -137,38 +144,33 @@ public class MainActivity extends Activity {
         addCard(root, c1);
         updatePercentText();
 
-        // ---- تغییر سایزبندی: خودکار (پیش‌فرض) یا اصلی
-        LinearLayout cSize = card();
-        cSize.addView(text("تغییر سایزبندی", 16, C_TEXT, true));
-        cSize.addView(chipRow(sizeSet, new String[]{"auto", "original"},
-                new String[]{"خودکار", "اصلی"}, "auto"));
-        addCard(root, cSize);
-
-        // ---- فرمت عکس
-        LinearLayout cPhoto = card();
-        cPhoto.addView(text("فرمت عکس", 16, C_TEXT, true));
-        cPhoto.addView(chipRow(photoSet, new String[]{"Original", "jpg", "png"},
-                new String[]{"اصلی", "jpg", "png"}, "Original"));
-        addCard(root, cPhoto);
-
-        // ---- فرمت فیلم
-        LinearLayout cVideo = card();
-        cVideo.addView(text("فرمت فیلم", 16, C_TEXT, true));
-        cVideo.addView(chipRow(videoSet, new String[]{"Original", "mp4", "mkv"},
-                new String[]{"اصلی", "mp4", "mkv"}, "Original"));
-        addCard(root, cVideo);
+        // ---- سه دکمه در یک ردیف: تغییر سایزبندی، فرمت عکس، فرمت فیلم
+        LinearLayout cButtons = card();
+        LinearLayout btnRow = row();
+        btnRow.setGravity(Gravity.CENTER);
+        btnRow.addView(optionButton(getString(R.string.btn_resize), sizeChoice,
+                new String[]{"auto", "original"},
+                new String[]{getString(R.string.opt_auto), getString(R.string.opt_original)}, "auto"));
+        btnRow.addView(optionButton(getString(R.string.btn_photo_format), photoChoice,
+                new String[]{"Original", "jpg", "png"},
+                new String[]{getString(R.string.opt_original), "jpg", "png"}, "Original"));
+        btnRow.addView(optionButton(getString(R.string.btn_video_format), videoChoice,
+                new String[]{"Original", "mp4", "mkv"},
+                new String[]{getString(R.string.opt_original), "mp4", "mkv"}, "Original"));
+        cButtons.addView(btnRow);
+        addCard(root, cButtons);
 
         // ---- فایل‌ها و دکمه‌ها
         LinearLayout c3 = card();
-        c3.addView(text("فایل‌ها", 16, C_TEXT, true));
-        selectedText = text("هنوز فایلی انتخاب نشده", 14, C_MUTED, false);
+        c3.addView(text(getString(R.string.files_title), 16, C_TEXT, true));
+        selectedText = text(getString(R.string.no_file_selected), 14, C_MUTED, false);
         c3.addView(selectedText);
 
-        pickBtn = pill("انتخاب فایل‌ها", false);
+        pickBtn = pill(getString(R.string.btn_pick), false);
         pickBtn.setOnClickListener(v -> pickFiles());
         c3.addView(pickBtn);
 
-        startBtn = pill("شروع فشرده‌سازی", true);
+        startBtn = pill(getString(R.string.btn_start), true);
         startBtn.setOnClickListener(v -> startProcessing());
         c3.addView(startBtn);
         addCard(root, c3);
@@ -176,8 +178,8 @@ public class MainActivity extends Activity {
         // ---- پیشرفت: برچسب + درصد
         LinearLayout c4 = card();
         LinearLayout head4 = row();
-        head4.addView(text("پیشرفت:", 16, C_TEXT, true), weightLp());
-        barText = text("0%", 16, C_ACCENT, true);
+        head4.addView(text(getString(R.string.label_progress), 16, C_TEXT, true), weightLp());
+        barText = text(LRM + "0%", 16, C_ACCENT, true);
         head4.addView(barText);
         c4.addView(head4);
 
@@ -204,7 +206,7 @@ public class MainActivity extends Activity {
         if (percentValue == null) {
             return;
         }
-        percentValue.setText(percent() + "% حجم فایل اصلی");
+        percentValue.setText(getString(R.string.percent_of_original, LRM + percent()));
         updateSizeHint();
     }
 
@@ -213,7 +215,8 @@ public class MainActivity extends Activity {
             return;
         }
         if (selectedSize > 0) {
-            sizeHint.setText("حجم تقریبی خروجی: " + formatSize(selectedSize * percent() / 100));
+            sizeHint.setText(getString(R.string.approx_output_size,
+                    LRM + formatSize(selectedSize * percent() / 100)));
         } else {
             sizeHint.setText("");
         }
@@ -224,6 +227,65 @@ public class MainActivity extends Activity {
             return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0));
         }
         return String.format(Locale.US, "%d KB", bytes / 1024L);
+    }
+
+    /** دکمه‌ای که عنوان و مقدار فعلی را نشان می‌دهد و با کلیک پاپ‌آپ گزینه‌ها را باز می‌کند */
+    private LinearLayout optionButton(String title, Choice c, String[] values, String[] labels, String initial) {
+        c.values = values;
+        c.labels = labels;
+        c.selected = initial;
+
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.VERTICAL);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(8), dp(12), dp(8), dp(12));
+        b.setBackground(rounded(C_CHIP, 14));
+        b.setClickable(true);
+
+        TextView t1 = text(title, 12, C_MUTED, false);
+        t1.setGravity(Gravity.CENTER);
+        c.valueView = text("", 14, C_ACCENT, true);
+        c.valueView.setGravity(Gravity.CENTER);
+        refreshValue(c);
+
+        b.addView(t1);
+        b.addView(c.valueView);
+        b.setOnClickListener(v -> showPopup(title, c));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        lp.setMargins(dp(4), 0, dp(4), 0);
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private void showPopup(String title, final Choice c) {
+        if (busy) {
+            return;
+        }
+        int checked = indexOf(c.values, c.selected);
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+                .setTitle(title)
+                .setSingleChoiceItems(c.labels, checked, (d, which) -> {
+                    c.selected = c.values[which];
+                    refreshValue(c);
+                    d.dismiss();
+                })
+                .setNegativeButton(getString(R.string.cancel), null)
+                .show();
+    }
+
+    private void refreshValue(Choice c) {
+        int i = indexOf(c.values, c.selected);
+        c.valueView.setText(i >= 0 ? c.labels[i] : "");
+    }
+
+    private static int indexOf(String[] arr, String v) {
+        for (int i = 0; i < arr.length; i++) {
+            if (arr[i].equals(v)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void pickFiles() {
@@ -253,8 +315,8 @@ public class MainActivity extends Activity {
         }
         selectedSize = selected.size() == 1 ? fileSize(selected.get(0)) : -1;
         selectedText.setText(selected.isEmpty()
-                ? "هنوز فایلی انتخاب نشده"
-                : selected.size() + " فایل انتخاب شده");
+                ? getString(R.string.no_file_selected)
+                : getString(R.string.files_selected, selected.size()));
         statusText.setText("");
         updateSizeHint();
         updateStartState();
@@ -285,15 +347,16 @@ public class MainActivity extends Activity {
 
         final List<Uri> uris = new ArrayList<>(selected);
         final int pct = percent();
-        final String vf = videoSet.selected;
-        final String pf = photoSet.selected;
-        final boolean keep = "original".equals(sizeSet.selected);
+        final String vf = videoChoice.selected;
+        final String pf = photoChoice.selected;
+        final boolean keep = "original".equals(sizeChoice.selected);
+        final boolean fa = Locale.getDefault().getLanguage().equals("fa");
         final String dir = libDir;
 
         NativeCore.reset();
         bar.setProgress(0);
-        barText.setText("0%");
-        statusText.setText("در حال آماده‌سازی...");
+        barText.setText(LRM + "0%");
+        statusText.setText(getString(R.string.status_preparing));
         handler.post(poll);
 
         new Thread(() -> {
@@ -309,15 +372,16 @@ public class MainActivity extends Activity {
 
             String tmp;
             try {
-                runOnUiThread(() -> statusText.setText("در حال پردازش..."));
+                runOnUiThread(() -> statusText.setText(getString(R.string.status_processing)));
                 inNative = true;
-                String result = NativeCore.processFiles(paths.toArray(new String[0]), pct, vf, pf, dir, keep);
+                String result = NativeCore.processFiles(paths.toArray(new String[0]),
+                        pct, vf, pf, dir, keep, fa);
                 if (failedCopy > 0) {
-                    result = result + "\nفایل نخوانده: " + failedCopy;
+                    result = result + "\n" + getString(R.string.unreadable_files, failedCopy);
                 }
                 tmp = result;
             } catch (Throwable t) {
-                tmp = "خطا: " + t;
+                tmp = getString(R.string.error_format, String.valueOf(t));
             } finally {
                 inNative = false;
                 busy = false;
@@ -325,11 +389,11 @@ public class MainActivity extends Activity {
             final String msg = tmp;
             runOnUiThread(() -> {
                 bar.setProgress(1000);
-                barText.setText("100%");
+                barText.setText(LRM + "100%");
                 statusText.setText(msg);
                 selected.clear();
                 selectedSize = -1;
-                selectedText.setText("هنوز فایلی انتخاب نشده");
+                selectedText.setText(getString(R.string.no_file_selected));
                 sizeHint.setText("");
                 pickBtn.setAlpha(1f);
                 updateStartState();
@@ -342,43 +406,6 @@ public class MainActivity extends Activity {
         startBtn.setEnabled(can);
         startBtn.setClickable(can);
         startBtn.setAlpha(can ? 1f : 0.4f);
-    }
-
-    /** یک ردیف چیپ انتخابی؛ مقدار انتخاب‌شده در set.selected نگه‌داری می‌شود */
-    private HorizontalScrollView chipRow(final ChipSet set, String[] values, String[] labels, String initial) {
-        set.selected = initial;
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        LinearLayout rowView = row();
-        for (int i = 0; i < values.length; i++) {
-            final String v = values[i];
-            TextView t = text(labels[i], 14, C_MUTED, false);
-            t.setTag(v);
-            t.setGravity(Gravity.CENTER);
-            t.setPadding(dp(16), dp(10), dp(16), dp(10));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp(12), dp(8), 0);
-            t.setLayoutParams(lp);
-            t.setClickable(true);
-            t.setOnClickListener(x -> {
-                set.selected = v;
-                refreshSet(set);
-            });
-            set.views.add(t);
-            rowView.addView(t);
-        }
-        hs.addView(rowView);
-        refreshSet(set);
-        return hs;
-    }
-
-    private void refreshSet(ChipSet set) {
-        for (TextView t : set.views) {
-            boolean on = t.getTag().equals(set.selected);
-            t.setTextColor(on ? 0xFFFFFFFF : C_MUTED);
-            t.setBackground(rounded(on ? C_ACCENT : C_CHIP, 20));
-        }
     }
 
     private TextView pill(String label, boolean filled) {

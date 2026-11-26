@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UC Tiny</string>
+    <string name="label_output_size">حجم خروجی:</string>
+    <string name="label_progress">پیشرفت:</string>
+    <string name="percent_of_original">%1$s%% حجم فایل اصلی</string>
+    <string name="approx_output_size">حجم تقریبی خروجی: %1$s</string>
+    <string name="btn_resize">تغییر سایزبندی</string>
+    <string name="btn_photo_format">فرمت عکس</string>
+    <string name="btn_video_format">فرمت فیلم</string>
+    <string name="opt_auto">خودکار</string>
+    <string name="opt_original">اصلی</string>
+    <string name="files_title">فایل‌ها</string>
+    <string name="no_file_selected">هنوز فایلی انتخاب نشده</string>
+    <string name="files_selected">%1$d فایل انتخاب شده</string>
+    <string name="btn_pick">انتخاب فایل‌ها</string>
+    <string name="btn_start">شروع فشرده‌سازی</string>
+    <string name="status_preparing">در حال آماده‌سازی...</string>
+    <string name="status_processing">در حال پردازش...</string>
+    <string name="unreadable_files">فایل نخوانده: %1$d</string>
+    <string name="error_format">خطا: %1$s</string>
+    <string name="cancel">انصراف</string>
+</resources>

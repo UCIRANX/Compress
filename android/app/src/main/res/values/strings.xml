@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UC Tiny</string>
+    <string name="label_output_size">Output size:</string>
+    <string name="label_progress">Progress:</string>
+    <string name="percent_of_original">%1$s%% of original size</string>
+    <string name="approx_output_size">Approx. output: %1$s</string>
+    <string name="btn_resize">Resize</string>
+    <string name="btn_photo_format">Photo format</string>
+    <string name="btn_video_format">Video format</string>
+    <string name="opt_auto">Auto</string>
+    <string name="opt_original">Original</string>
+    <string name="files_title">Files</string>
+    <string name="no_file_selected">No file selected</string>
+    <string name="files_selected">%1$d files selected</string>
+    <string name="btn_pick">Select files</string>
+    <string name="btn_start">Start compression</string>
+    <string name="status_preparing">Preparing...</string>
+    <string name="status_processing">Processing...</string>
+    <string name="unreadable_files">Unreadable files: %1$d</string>
+    <string name="error_format">Error: %1$s</string>
+    <string name="cancel">Cancel</string>
+</resources>

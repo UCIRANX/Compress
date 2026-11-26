@@ -1,0 +1,3 @@
+build.rs
+ui/app.slint
+src/android.rs

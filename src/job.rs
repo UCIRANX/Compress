@@ -1,5 +1,4 @@
-use crate::compress;
-use crate::storage;
+use crate::{compress, storage, tr};
 use anyhow::{anyhow, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,7 +19,7 @@ pub fn process(
     let name = input
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| anyhow!("نام فایل نامعتبر است"))?;
+        .ok_or_else(|| anyhow!("{}", tr("نام فایل نامعتبر است", "Invalid file name")))?;
     let (stem, in_ext) = match name.rsplit_once('.') {
         Some((s, e)) => (s, e.to_lowercase()),
         None => (name, String::new()),
@@ -28,10 +27,16 @@ pub fn process(
     let is_video = VIDEO_IN.contains(&in_ext.as_str());
     let is_image = IMAGE_IN.contains(&in_ext.as_str());
     if !is_video && !is_image {
-        return Err(anyhow!("فرمت {in_ext} پشتیبانی نمی‌شود"));
+        return Err(anyhow!(
+            "{}{}{}",
+            tr("فرمت ", "Format "),
+            in_ext,
+            tr(" پشتیبانی نمی‌شود", " is not supported")
+        ));
     }
 
-    let dims = probe_dims_ffmpeg(ffmpeg, input).ok_or_else(|| anyhow!("ابعاد تصویر خوانده نشد"))?;
+    let dims = probe_dims_ffmpeg(ffmpeg, input)
+        .ok_or_else(|| anyhow!("{}", tr("ابعاد تصویر خوانده نشد", "Could not read image dimensions")))?;
     let in_fps = if is_video { detect_fps(ffmpeg, ffprobe, input) } else { 0.0 };
 
     let choice = if is_video { video_choice } else { photo_choice };
@@ -78,16 +83,16 @@ pub fn probe_duration(ffprobe: &Path, input: &Path) -> Result<f64> {
         .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
         .arg(input)
         .output()
-        .context("ffprobe اجرا نشد")?;
+        .context(tr("ffprobe اجرا نشد", "Could not run ffprobe"))?;
     let text = String::from_utf8_lossy(&out.stdout);
     text.trim()
         .parse::<f64>()
-        .map_err(|_| anyhow!("مدت ویدیو خوانده نشد"))
+        .map_err(|_| anyhow!("{}", tr("مدت ویدیو خوانده نشد", "Could not read video duration")))
 }
 
 /// ابعاد نمایشی (عرض، ارتفاع) را از خروجی `ffmpeg -i` می‌خواند.
-/// اگر ویدیو/عکس چرخش داشته باشد (مثلاً عمودی ضبط‌شده در موبایل)، ابعاد جابه‌جا می‌شوند،
-/// چون ffmpeg موقع پردازش آن را اعمال می‌کند و scale باید با ابعاد چرخیده کار کند.
+/// اگر چرخش داشته باشد ابعاد جابه‌جا می‌شوند. فقط ضلع کوچک و حاصل‌ضرب ابعاد استفاده می‌شوند،
+/// پس حتی اگر چرخش اشتباه تشخیص داده شود، نتیجه تغییر نمی‌کند.
 pub fn probe_dims_ffmpeg(ffmpeg: &Path, input: &Path) -> Option<(u32, u32)> {
     let out = Command::new(ffmpeg).args(["-hide_banner", "-i"]).arg(input).output().ok()?;
     let text = String::from_utf8_lossy(&out.stderr);
