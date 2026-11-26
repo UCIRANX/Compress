@@ -21,4 +21,6 @@
     <string name="cancel">انصراف</string>
     <string name="btn_stop">توقف</string>
     <string name="status_stopping">در حال توقف...</string>
+    <string name="telegram_label">Telegram</string>
+    <string name="telegram_handle">@UCIRANIR</string>
 </resources>

@@ -21,4 +21,6 @@
     <string name="cancel">Cancel</string>
     <string name="btn_stop">Stop</string>
     <string name="status_stopping">Stopping...</string>
+    <string name="telegram_label">Telegram</string>
+    <string name="telegram_handle">@UCIRANIR</string>
 </resources>

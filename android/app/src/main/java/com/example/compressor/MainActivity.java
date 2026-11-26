@@ -225,7 +225,15 @@ public class MainActivity extends Activity {
         addCard(root, c4);
 
         updateStartState();
-        setContentView(scroll);
+        LinearLayout outer = new LinearLayout(this);
+        outer.setOrientation(LinearLayout.VERTICAL);
+        outer.setBackgroundColor(C_BG);
+        outer.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
+        outer.addView(buildHeader(), new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        outer.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        setContentView(outer);
     }
 
     /** با هر لمس بیرون از دکمه‌ها و پنل، پنل گزینه‌ها بسته می‌شود */
@@ -249,6 +257,27 @@ public class MainActivity extends Activity {
         float y = ev.getRawY();
         return x >= loc[0] && x <= loc[0] + v.getWidth()
                 && y >= loc[1] && y <= loc[1] + v.getHeight();
+    }
+
+    /** هدر بالای صفحه: نام برنامه در یک طرف، و تماس تلگرام در طرف دیگر (هم‌اندازه‌ی نام) */
+    private View buildHeader() {
+        LinearLayout h = row();
+        h.setPadding(dp(20), dp(16), dp(20), dp(12));
+
+        h.addView(text(getString(R.string.app_name), 18, C_TEXT, true), weightLp());
+
+        LinearLayout contact = new LinearLayout(this);
+        contact.setOrientation(LinearLayout.VERTICAL);
+        contact.addView(text(getString(R.string.telegram_label), 18, C_MUTED, false));
+        contact.addView(text(getString(R.string.telegram_handle), 18, C_ACCENT, true));
+        contact.setClickable(true);
+        contact.setOnClickListener(v -> openTelegram());
+        h.addView(contact);
+        return h;
+    }
+
+    private void openTelegram() {
+        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/uciranir")));
     }
 
     private int percent() {
