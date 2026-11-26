@@ -282,6 +282,11 @@ fn run_with_progress(mut cmd: Command, duration_s: f64) -> Result<()> {
         .context(tr("خروجی ffmpeg در دسترس نیست", "ffmpeg output is not available"))?;
     for line in BufReader::new(stdout).lines() {
         let line = line?;
+        if crate::cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("{}", tr("متوقف شد", "Stopped"));
+        }
         if let Some(v) = line.strip_prefix("out_time_us=") {
             if let Ok(us) = v.trim().parse::<f64>() {
                 if duration_s > 0.0 {

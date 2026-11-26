@@ -47,6 +47,7 @@ public class MainActivity extends Activity {
     private static final int C_GLASS = 0x33FFFFFF;
     private static final int C_GLASS_EDGE = 0x55FFFFFF;
     private static final int C_GLASS_SEL = 0x446C8CFF;
+    private static final int C_STOP = 0xFFE5534B;
 
     /** تگ‌های EXIF که از عکس اصلی به خروجی منتقل می‌شوند (چرخش عمداً نیست) */
     private static final String[] EXIF_COPY_TAGS = {
@@ -79,6 +80,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile boolean busy = false;
     private volatile boolean inNative = false;
+    private volatile boolean stopping = false;
     private long selectedSize = -1;
     private String libDir;
 
@@ -196,7 +198,13 @@ public class MainActivity extends Activity {
         c3.addView(pickBtn);
 
         startBtn = pill(getString(R.string.btn_start), true);
-        startBtn.setOnClickListener(v -> startProcessing());
+        startBtn.setOnClickListener(v -> {
+            if (busy) {
+                stopProcessing();
+            } else {
+                startProcessing();
+            }
+        });
         c3.addView(startBtn);
         addCard(root, c3);
 
@@ -383,6 +391,9 @@ public class MainActivity extends Activity {
             selected.add(data.getData());
         }
         selectedSize = selected.size() == 1 ? fileSize(selected.get(0)) : -1;
+        // پیشرفت قبلی برای فایل‌های جدید بازنشانی می‌شود
+        bar.setProgress(0);
+        progressText.setText(getString(R.string.progress_line, "0"));
         selectedText.setText(selected.isEmpty()
                 ? getString(R.string.no_file_selected)
                 : getString(R.string.files_selected, selected.size()));
@@ -411,6 +422,7 @@ public class MainActivity extends Activity {
         }
         closePanel();
         busy = true;
+        stopping = false;
         inNative = false;
         updateStartState();
         pickBtn.setAlpha(0.4f);
@@ -464,6 +476,7 @@ public class MainActivity extends Activity {
                 inNative = false;
                 busy = false;
             }
+            stopping = false;
 
             // انتقال متادیتای EXIF به عکس‌های خروجی (بدون برچسب چرخش، چون پیکسل‌ها چرخیده‌اند)
             for (String line : pairBlock.split("\n")) {
@@ -545,10 +558,31 @@ public class MainActivity extends Activity {
     }
 
     private void updateStartState() {
-        boolean can = !busy && !selected.isEmpty();
+        if (busy) {
+            startBtn.setText(getString(R.string.btn_stop));
+            startBtn.setBackground(rounded(C_STOP, 14));
+            boolean can = !stopping;
+            startBtn.setEnabled(can);
+            startBtn.setClickable(can);
+            startBtn.setAlpha(can ? 1f : 0.5f);
+            return;
+        }
+        startBtn.setText(getString(R.string.btn_start));
+        startBtn.setBackground(rounded(C_ACCENT, 14));
+        boolean can = !selected.isEmpty();
         startBtn.setEnabled(can);
         startBtn.setClickable(can);
         startBtn.setAlpha(can ? 1f : 0.4f);
+    }
+
+    private void stopProcessing() {
+        if (!busy || stopping) {
+            return;
+        }
+        stopping = true;
+        NativeCore.cancel();
+        statusText.setText(getString(R.string.status_stopping));
+        updateStartState();
     }
 
     private TextView pill(String label, boolean filled) {

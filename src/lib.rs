@@ -15,6 +15,12 @@ static FA: AtomicBool = AtomicBool::new(true);
 static TOTAL: AtomicU32 = AtomicU32::new(0);
 static DONE: AtomicU32 = AtomicU32::new(0);
 static CUR_PM: AtomicU32 = AtomicU32::new(0);
+/// درخواست توقف از سمت کاربر
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+pub fn cancelled() -> bool {
+    CANCEL.load(Ordering::Relaxed)
+}
 
 pub fn set_cur(pm: u32) {
     CUR_PM.store(pm.min(1000), Ordering::Relaxed);
@@ -70,6 +76,9 @@ fn run(
     // برای هر عکس موفق: "اندیس\tمسیر خروجی" تا اپ متادیتای EXIF را منتقل کند
     let mut pairs: Vec<String> = Vec::new();
     for (idx, p) in paths.into_iter().enumerate() {
+        if cancelled() {
+            break;
+        }
         let input = PathBuf::from(&p);
         let name = input
             .file_name()
@@ -120,11 +129,17 @@ fn run(
         CUR_PM.store(0, Ordering::Relaxed);
     }
 
-    let mut msg = if FA.load(Ordering::Relaxed) {
+    let stopped = cancelled();
+    let mut msg = if stopped {
+        tr("توقف شد. ", "Stopped. ").to_string()
+    } else {
+        String::new()
+    };
+    msg.push_str(&if FA.load(Ordering::Relaxed) {
         format!("{ok} از {total} فایل در {} ذخیره شد.", iso("Pictures/Compress"))
     } else {
         format!("{ok} of {total} files saved to {}.", iso("Pictures/Compress"))
-    };
+    });
     // فقط خلاصه‌ی عادی نمایش داده می‌شود؛ هشدارها و فریم‌ریت‌ها دیگر در وضعیت نمی‌آیند
     let _ = (&errs, &reports);
     // جداکننده‌ی نامرئی: بعد از آن فهرست خروجی‌های عکس است که اپ می‌خواند
@@ -147,6 +162,7 @@ pub extern "system" fn Java_com_example_compressor_NativeCore_processFiles(
     fa: jboolean,
 ) -> jstring {
     FA.store(fa != 0, Ordering::Relaxed);
+    CANCEL.store(false, Ordering::Relaxed);
     let result = (|| -> Result<String> {
         let vf: String = env.get_string(&video_format)?.into();
         let pf: String = env.get_string(&photo_format)?.into();
@@ -178,4 +194,10 @@ pub extern "system" fn Java_com_example_compressor_NativeCore_reset(_env: JNIEnv
     TOTAL.store(0, Ordering::Relaxed);
     DONE.store(0, Ordering::Relaxed);
     CUR_PM.store(0, Ordering::Relaxed);
+}
+
+/// درخواست توقف فشرده‌سازی؛ فایل جاری متوقف و بقیه انجام نمی‌شود
+#[no_mangle]
+pub extern "system" fn Java_com_example_compressor_NativeCore_cancel(_env: JNIEnv, _class: JClass) {
+    CANCEL.store(true, Ordering::Relaxed);
 }

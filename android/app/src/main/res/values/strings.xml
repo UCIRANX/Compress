@@ -19,4 +19,6 @@
     <string name="unreadable_files">Unreadable files: %1$d</string>
     <string name="error_format">Error: %1$s</string>
     <string name="cancel">Cancel</string>
+    <string name="btn_stop">Stop</string>
+    <string name="status_stopping">Stopping...</string>
 </resources>

@@ -19,4 +19,7 @@ public final class NativeCore {
     public static native int progress();
 
     public static native void reset();
+
+    /** درخواست توقف فشرده‌سازی */
+    public static native void cancel();
 }

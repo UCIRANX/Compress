@@ -19,4 +19,6 @@
     <string name="unreadable_files">فایل نخوانده: %1$d</string>
     <string name="error_format">خطا: %1$s</string>
     <string name="cancel">انصراف</string>
+    <string name="btn_stop">توقف</string>
+    <string name="status_stopping">در حال توقف...</string>
 </resources>
