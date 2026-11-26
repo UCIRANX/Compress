@@ -4,7 +4,7 @@ pub mod storage;
 
 use anyhow::Result;
 use jni::objects::{JClass, JObjectArray, JString};
-use jni::sys::{jint, jstring};
+use jni::sys::{jboolean, jint, jstring};
 use jni::JNIEnv;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -18,7 +18,15 @@ pub fn set_cur(pm: u32) {
     CUR_PM.store(pm.min(1000), Ordering::Relaxed);
 }
 
-fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_dir: &str) -> Result<String> {
+fn run(
+    env: &mut JNIEnv,
+    files: &JObjectArray,
+    percent: jint,
+    video_fmt: &str,
+    photo_fmt: &str,
+    lib_dir: &str,
+    keep: bool,
+) -> Result<String> {
     let count = env.get_array_length(files)?;
     let mut paths = Vec::with_capacity(count as usize);
     for i in 0..count {
@@ -46,17 +54,20 @@ fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match job::process(&ffmpeg, &ffprobe, &input, percent, format) {
+        match job::process(&ffmpeg, &ffprobe, &input, percent, video_fmt, photo_fmt, keep) {
             Ok((_, in_fps, out_fps, note)) => {
                 ok += 1;
                 if !note.is_empty() {
                     errs.push(format!("هشدار {name}: {note}"));
                 }
-                reports.push(format!("{name}: {in_fps:.0} → {out_fps:.0}"));
-                if out_fps <= 0.0 {
-                    errs.push(format!("هشدار {name}: فریم‌ریت خروجی خوانده نشد"));
-                } else if out_fps > 30.5 {
-                    errs.push(format!("هشدار {name}: فریم‌ریت خروجی {out_fps:.0} است (انتظار ۳۰)"));
+                // فقط برای ویدیو (فریم‌ریت ورودی > ۰) گزارش و بررسی فریم‌ریت انجام می‌شود
+                if in_fps > 0.0 {
+                    reports.push(format!("{name}: {in_fps:.0} → {out_fps:.0}"));
+                    if out_fps <= 0.0 {
+                        errs.push(format!("هشدار {name}: فریم‌ریت خروجی خوانده نشد"));
+                    } else if out_fps > 30.5 {
+                        errs.push(format!("هشدار {name}: فریم‌ریت خروجی {out_fps:.0} است (انتظار ۳۰)"));
+                    }
                 }
             }
             Err(e) => errs.push(format!("{name}: {e:#}")),
@@ -68,7 +79,7 @@ fn run(env: &mut JNIEnv, files: &JObjectArray, percent: jint, format: &str, lib_
 
     let mut msg = format!("{ok} از {total} فایل در DCIM/Compress ذخیره شد.");
     if !errs.is_empty() {
-        msg.push_str("\nخطاها:\n");
+        msg.push_str("\nهشدارها و خطاها:\n");
         msg.push_str(&errs.join("\n"));
     }
     if !reports.is_empty() {
@@ -84,13 +95,16 @@ pub extern "system" fn Java_com_example_compressor_NativeCore_processFiles(
     _class: JClass,
     files: JObjectArray,
     percent: jint,
-    format: JString,
+    video_format: JString,
+    photo_format: JString,
     lib_dir: JString,
+    keep: jboolean,
 ) -> jstring {
     let result = (|| -> Result<String> {
-        let fmt: String = env.get_string(&format)?.into();
+        let vf: String = env.get_string(&video_format)?.into();
+        let pf: String = env.get_string(&photo_format)?.into();
         let dir: String = env.get_string(&lib_dir)?.into();
-        run(&mut env, &files, percent, &fmt, &dir)
+        run(&mut env, &files, percent, &vf, &pf, &dir, keep != 0)
     })();
     let msg = result.unwrap_or_else(|e| format!("خطا: {e:#}"));
     match env.new_string(msg) {

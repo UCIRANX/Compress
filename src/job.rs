@@ -13,7 +13,9 @@ pub fn process(
     ffprobe: &Path,
     input: &Path,
     percent: u32,
-    choice: &str,
+    video_choice: &str,
+    photo_choice: &str,
+    keep: bool,
 ) -> Result<(PathBuf, f64, f64, String)> {
     let name = input
         .file_name()
@@ -32,14 +34,15 @@ pub fn process(
     let dims = probe_dims_ffmpeg(ffmpeg, input).ok_or_else(|| anyhow!("ابعاد تصویر خوانده نشد"))?;
     let in_fps = if is_video { detect_fps(ffmpeg, ffprobe, input) } else { 0.0 };
 
+    let choice = if is_video { video_choice } else { photo_choice };
     let out_ext = pick_ext(is_video, &in_ext, choice);
     let out = storage::unique_path(&format!("{stem}.{out_ext}"))?;
 
     let result = if is_video {
         let dur = probe_duration(ffprobe, input)?;
-        compress::compress_video(ffmpeg, input, &out, dur, in_fps, dims, percent)
+        compress::compress_video(ffmpeg, input, &out, dur, in_fps, dims, percent, keep)
     } else {
-        compress::compress_image(ffmpeg, input, &out, percent, dims)
+        compress::compress_image(ffmpeg, input, &out, percent, dims, keep)
     };
     if result.is_err() {
         let _ = std::fs::remove_file(&out);

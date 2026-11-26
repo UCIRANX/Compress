@@ -32,6 +32,16 @@ pub fn scaled_dims(w: u32, h: u32, percent: u32) -> (u32, u32) {
     (even(w as f64 * k), even(h as f64 * k))
 }
 
+/// اگر کاربر «اصلی» انتخاب کرده باشد ابعاد دست‌نخورده می‌ماند (فقط زوج می‌شود)،
+/// وگرنه طبق درصد و قوانین scaled_dims تغییر می‌کند.
+pub fn target_dims(w: u32, h: u32, percent: u32, keep: bool) -> (u32, u32) {
+    if keep {
+        (even(w as f64), even(h as f64))
+    } else {
+        scaled_dims(w, h, percent)
+    }
+}
+
 /// درصد هدف را به بیت‌ریت ویدیو (kbps) تبدیل می‌کند.
 pub fn video_bitrate_kbps(duration_s: f64, src_bytes: u64, percent: u32) -> u32 {
     let target_bits = src_bytes as f64 * 8.0 * percent as f64 / 100.0;
@@ -61,9 +71,10 @@ pub fn compress_video(
     fps: f64,
     dims: (u32, u32),
     percent: u32,
+    keep: bool,
 ) -> Result<Option<String>> {
     let (w, h) = dims;
-    let (ow, oh) = scaled_dims(w, h, percent);
+    let (ow, oh) = target_dims(w, h, percent, keep);
     let src = std::fs::metadata(input)?.len();
     let kbps = video_bitrate_kbps(duration_s, src, percent);
     let out_fps = if fps <= 0.0 {
@@ -132,8 +143,9 @@ pub fn compress_image(
     output: &Path,
     percent: u32,
     dims: (u32, u32),
+    keep: bool,
 ) -> Result<Option<String>> {
-    let (mut cw, mut ch) = scaled_dims(dims.0, dims.1, percent);
+    let (mut cw, mut ch) = target_dims(dims.0, dims.1, percent, keep);
     let ext = output.extension().and_then(|e| e.to_str()).unwrap_or_default();
 
     // PNG کیفیت قابل تنظیم ندارد؛ فقط ابعاد تغییر می‌کند
@@ -144,13 +156,14 @@ pub fn compress_image(
 
     let src = std::fs::metadata(input)?.len();
     let target = src * percent as u64 / 100;
-    let tmp = output.with_extension("tmp");
+    // پسوند واقعی را نگه می‌داریم چون ffmpeg از روی پسوند فرمت را تشخیص می‌دهد
+    let tmp = output.with_extension(format!("tmp.{ext}"));
     loop {
         let q = best_quality_under(target, |q| {
             encode_image(ffmpeg, input, &tmp, q, cw, ch)?;
             Ok(std::fs::metadata(&tmp)?.len())
         })?;
-        let can_shrink = cw.min(ch) > MIN_SHORT_SIDE;
+        let can_shrink = !keep && cw.min(ch) > MIN_SHORT_SIDE;
         if q >= MIN_IMAGE_Q || !can_shrink {
             encode_image(ffmpeg, input, output, q, cw, ch)?;
             let _ = std::fs::remove_file(&tmp);

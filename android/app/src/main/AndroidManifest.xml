@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
-        android:label="Compressor"
+        android:label="UC Tiny"
         android:requestLegacyExternalStorage="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>

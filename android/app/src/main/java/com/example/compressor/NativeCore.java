@@ -7,7 +7,9 @@ public final class NativeCore {
 
     private NativeCore() {}
 
-    public static native String processFiles(String[] paths, int percent, String format, String libDir);
+    /** keepSize = true یعنی ابعاد اصلی حفظ شود */
+    public static native String processFiles(String[] paths, int percent, String videoFormat,
+                                             String photoFormat, String libDir, boolean keepSize);
 
     /** پیشرفت کل از ۰ تا ۱۰۰۰ */
     public static native int progress();
