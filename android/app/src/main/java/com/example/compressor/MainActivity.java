@@ -657,6 +657,10 @@ public class MainActivity extends Activity {
         return r;
     }
 
+    private LinearLayout.LayoutParams weightLp() {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+    }
+
     private LinearLayout.LayoutParams matchTop(int top) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
