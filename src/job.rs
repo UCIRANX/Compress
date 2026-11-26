@@ -46,7 +46,8 @@ pub fn process(
 
     let result = if is_video {
         let dur = probe_duration(ffprobe, input)?;
-        compress::compress_video(ffmpeg, input, &out, dur, in_fps, dims, percent, keep)
+        let location = probe_location(ffmpeg, input);
+        compress::compress_video(ffmpeg, input, &out, dur, in_fps, dims, percent, keep, location.as_deref())
     } else {
         compress::compress_image(ffmpeg, input, &out, percent, dims, keep, orientation)
     };
@@ -181,4 +182,22 @@ fn probe_stream_rate(ffprobe: &Path, input: &Path, entry: &str) -> f64 {
         },
         None => s.parse::<f64>().unwrap_or(0.0),
     }
+}
+
+/// موقعیت مکانی ویدیو را از متادیتای ffmpeg (خط location) می‌خواند؛ اگر نبود None.
+pub fn probe_location(ffmpeg: &Path, input: &Path) -> Option<String> {
+    let out = Command::new(ffmpeg).args(["-hide_banner", "-i"]).arg(input).output().ok()?;
+    let text = String::from_utf8_lossy(&out.stderr);
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with("location") || t.starts_with("com.apple.quicktime.location") {
+            if let Some((_, v)) = t.split_once(':') {
+                let v = v.trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
 }

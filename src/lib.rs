@@ -125,14 +125,8 @@ fn run(
     } else {
         format!("{ok} of {total} files saved to {}.", iso("Pictures/Compress"))
     };
-    if !errs.is_empty() {
-        msg.push_str(tr("\nهشدارها و خطاها:\n", "\nWarnings and errors:\n"));
-        msg.push_str(&errs.join("\n"));
-    }
-    if !reports.is_empty() {
-        msg.push_str(tr("\nفریم‌ریت (ورودی → خروجی):\n", "\nFrame rate (input → output):\n"));
-        msg.push_str(&reports.join("\n"));
-    }
+    // فقط خلاصه‌ی عادی نمایش داده می‌شود؛ هشدارها و فریم‌ریت‌ها دیگر در وضعیت نمی‌آیند
+    let _ = (&errs, &reports);
     // جداکننده‌ی نامرئی: بعد از آن فهرست خروجی‌های عکس است که اپ می‌خواند
     msg.push('\u{1}');
     msg.push_str(&pairs.join("\n"));

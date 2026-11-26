@@ -85,6 +85,7 @@ pub fn compress_video(
     dims: (u32, u32),
     percent: u32,
     keep: bool,
+    location: Option<&str>,
 ) -> Result<Option<String>> {
     let (w, h) = dims;
     let k = scale_factor(w.min(h), percent, keep, MIN_SHORT_SIDE_VIDEO);
@@ -103,7 +104,7 @@ pub fn compress_video(
     } else {
         None
     };
-    encode_video(ffmpeg, input, output, kbps, duration_s, fps, k)?;
+    encode_video(ffmpeg, input, output, kbps, duration_s, fps, k, location)?;
     Ok(warn)
 }
 
@@ -118,6 +119,7 @@ pub fn encode_video(
     duration_s: f64,
     fps: f64,
     k: f64,
+    location: Option<&str>,
 ) -> Result<()> {
     let ext = output.extension().and_then(|e| e.to_str()).unwrap_or_default();
     let (vcodec, acodec, extra): (&str, &str, Vec<&str>) = match ext {
@@ -146,8 +148,15 @@ pub fn encode_video(
         .args(["-vf", vf_arg.as_str()])
         .args(["-c:v", vcodec, "-b:v", kb.as_str(), "-maxrate", kb.as_str(), "-bufsize", buf.as_str()])
         .args(extra)
-        .args(["-c:a", acodec, "-b:a", "96k"])
-        .arg(output);
+        .args(["-c:a", acodec, "-b:a", "96k"]);
+    // موقعیت مکانی را صریح می‌نویسیم، و برای mp4/mov متادیتای دلخواه را با mdta نگه می‌داریم
+    if let Some(l) = location {
+        cmd.args(["-metadata", format!("location={l}").as_str()]);
+    }
+    if ext == "mp4" || ext == "mov" {
+        cmd.args(["-movflags", "use_metadata_tags"]);
+    }
+    cmd.arg(output);
     run_with_progress(cmd, duration_s)
 }
 

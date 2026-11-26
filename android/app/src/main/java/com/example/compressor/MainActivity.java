@@ -18,6 +18,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -91,6 +92,7 @@ public class MainActivity extends Activity {
     private TextView pickBtn;
     private TextView startBtn;
     private LinearLayout optionPanel;
+    private LinearLayout buttonRow;
 
     private final Runnable poll = new Runnable() {
         @Override
@@ -163,6 +165,7 @@ public class MainActivity extends Activity {
         // ---- سه دکمه در یک ردیف؛ با کلیک، گزینه‌ها زیر همین ردیف باز می‌شوند
         LinearLayout cButtons = card();
         LinearLayout btnRow = row();
+        buttonRow = btnRow;
         btnRow.addView(optionButton(getString(R.string.btn_resize), sizeChoice,
                 new String[]{"auto", "original"},
                 new String[]{getString(R.string.opt_auto), getString(R.string.opt_original)}, "auto"));
@@ -215,6 +218,29 @@ public class MainActivity extends Activity {
 
         updateStartState();
         setContentView(scroll);
+    }
+
+    /** با هر لمس بیرون از دکمه‌ها و پنل، پنل گزینه‌ها بسته می‌شود */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getActionMasked() == MotionEvent.ACTION_DOWN && openChoice != null) {
+            if (!isTouchInside(buttonRow, ev) && !isTouchInside(optionPanel, ev)) {
+                closePanel();
+            }
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private static boolean isTouchInside(View v, MotionEvent ev) {
+        if (v == null || v.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+        int[] loc = new int[2];
+        v.getLocationOnScreen(loc);
+        float x = ev.getRawX();
+        float y = ev.getRawY();
+        return x >= loc[0] && x <= loc[0] + v.getWidth()
+                && y >= loc[1] && y <= loc[1] + v.getHeight();
     }
 
     private int percent() {
@@ -432,9 +458,6 @@ public class MainActivity extends Activity {
                 int sep = raw.indexOf('\u0001');
                 text = sep >= 0 ? raw.substring(0, sep) : raw;
                 pairBlock = sep >= 0 ? raw.substring(sep + 1) : "";
-                if (failedCopy > 0) {
-                    text = text + "\n" + getString(R.string.unreadable_files, failedCopy);
-                }
             } catch (Throwable t) {
                 text = getString(R.string.error_format, String.valueOf(t));
             } finally {
@@ -604,18 +627,34 @@ public class MainActivity extends Activity {
 
     // ffmpeg مسیر content:// را نمی‌خواند؛ فایل را با نام اصلی در کش کپی می‌کنیم
     private String copyToCache(Uri uri) throws IOException {
-        String name = "input_" + System.nanoTime();
-        try (Cursor c = getContentResolver().query(uri, null, null, null, null)) {
+        String name = null;
+        try (Cursor c = getContentResolver().query(uri,
+                new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
             if (c != null && c.moveToFirst()) {
                 int idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (idx >= 0 && c.getString(idx) != null) {
+                if (idx >= 0 && !c.isNull(idx)) {
                     name = c.getString(idx);
                 }
             }
+        } catch (Exception ignored) {
+            // اگر نام خوانده نشد، از نوع فایل پسوند را می‌گیریم
         }
+        if (name == null || name.trim().isEmpty()) {
+            name = "input";
+        }
+        if (!name.contains(".")) {
+            String mime = getContentResolver().getType(uri);
+            String ext = mime == null ? null
+                    : android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
+            if (ext != null) {
+                name = name + "." + ext;
+            }
+        }
+        name = name.replace('/', '_');
+
         File dir = new File(getCacheDir(), "in_" + System.nanoTime());
         dir.mkdirs();
-        File dst = new File(dir, name.replace('/', '_'));
+        File dst = new File(dir, name);
         try (InputStream in = getContentResolver().openInputStream(uri);
              OutputStream out = new FileOutputStream(dst)) {
             if (in == null) {
